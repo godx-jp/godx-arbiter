@@ -52,7 +52,7 @@ Deliverables:
 Done criterion verified: doctor reports detected project, parsed config,
 exits 0 in clean state and exits 1 with warnings.
 
-## Step 3 — Fast-path policy engine ◯
+## Step 3 — Fast-path policy engine ●
 
 **Goal**: `policy.yaml` regex rules evaluated, decisions returned without
 LLM.
@@ -66,7 +66,7 @@ Deliverables:
 Done when: a project with `policy.yaml` containing 5 deny + 5 allow rules
 sees ~1ms p50 fast-path latency.
 
-## Step 4 — Slow-path agent (Anthropic Go SDK + tool loop) ◯
+## Step 4 — Slow-path agent (Anthropic Go SDK + tool loop) ●
 
 **Goal**: When fast-path falls through, an LLM agent decides. No external
 MCP yet — tools are internal.
@@ -84,7 +84,7 @@ Deliverables:
 Done when: a tool call not matching `policy.yaml` triggers the agent,
 which returns approve/deny within 30s with reasoning logged.
 
-## Step 5 — Notification + escalation ◯
+## Step 5 — Notification + escalation ●
 
 **Goal**: `escalate_to_user` tool wired up. Telegram + desktop channels
 working.
@@ -102,7 +102,7 @@ Deliverables:
 Done when: agent escalates → Telegram message arrives → user clicks
 Approve → arbiter returns approve, all under 30s.
 
-## Step 6 — MCP server ◯
+## Step 6 — MCP server ●
 
 **Goal**: `arbiter mcp` exposes the same tools to external Claude
 sessions.
@@ -114,7 +114,7 @@ Deliverables:
 - Sample registration snippet in INSTALL.md
 - Conformance test against MCP Inspector
 
-## Step 7 — Skills system + best-practice library ◯
+## Step 7 — Skills system + best-practice library ●
 
 **Goal**: Reusable skill MD files the agent can pull into context.
 
@@ -129,7 +129,7 @@ Deliverables:
   - `migration-discipline.md`
   - `secret-scanning.md`
 
-## Step 8 — Distribution ◯
+## Step 8 — Distribution ●
 
 **Goal**: `npm i -g godx-arbiter` works on Linux / macOS / Windows.
 
@@ -140,7 +140,7 @@ Deliverables:
 - Signed binaries (cosign or notarization on macOS)
 - README quick-start verified
 
-## Step 9 — `arbiter explain` + replay ◯
+## Step 9 — `arbiter explain` + replay ●
 
 **Goal**: Past decisions are debuggable.
 
@@ -156,7 +156,7 @@ Deliverables:
 
 Not required for v1.
 
-## Step 11 — Adapter framework + proxy server skeleton ◯
+## Step 11 — Adapter framework + proxy server skeleton ●
 
 **Goal**: `internal/adapter` interface in place; one adapter per
 supported CLI (claudecode native; others stub). Proxy server runs on
@@ -174,7 +174,7 @@ Deliverables:
 Done when: pointing Codex at `localhost:7777/v1` gets responses
 identical (modulo arbiter logging) to direct OpenAI calls.
 
-## Step 12 — Tool gating in proxy mode ◯
+## Step 12 — Tool gating in proxy mode ●
 
 **Goal**: When the proxy sees a tool-use block in a model response, it
 runs the same decide pipeline as hook mode. Streaming and non-streaming
@@ -194,7 +194,7 @@ Done when: Codex tries to run a destructive tool, arbiter blocks it via
 `rules.md`, and Codex receives a synthetic "tool refused: <reason>"
 result allowing it to recover gracefully.
 
-## Step 13 — Model routing + cross-provider translation + budget ◯
+## Step 13 — Model routing + cross-provider translation + budget ●
 
 **Goal**: `rules.md` `## Model routing` is honored. Tasks classified.
 Tokens + cost tracked. Cross-provider translation works for the common
@@ -215,7 +215,7 @@ Done when: a session tagged `read-only-summarization` calling for
 `gpt-5` is rewritten to `gemini-2.5-flash`, succeeds, and the cost
 delta shows up in `arbiter usage`.
 
-## Step 14 — `delegate_to` cross-CLI handoff ◯
+## Step 14 — `delegate_to` cross-CLI handoff ●
 
 **Goal**: A running session can hand a sub-task to another CLI via the
 `delegate_to` MCP tool, get a structured result back.

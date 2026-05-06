@@ -55,8 +55,8 @@ func TestServer_PassthroughAnthropic(t *testing.T) {
 func TestServer_PreForwardRewrite(t *testing.T) {
 	upstream, _ := fakeUpstream(t)
 	s := New("127.0.0.1:0").WithUpstream(UpstreamConfig{OpenAI: upstream.URL}).WithHooks(Hooks{
-		PreForward: func(provider string, body []byte, h http.Header) ([]byte, http.Header, error) {
-			return []byte(`{"rewritten":true}`), h, nil
+		PreForward: func(provider string, body []byte, h http.Header) ([]byte, http.Header, http.Header, error) {
+			return []byte(`{"rewritten":true}`), h, nil, nil
 		},
 	})
 	ctx, cancel := context.WithCancel(context.Background())

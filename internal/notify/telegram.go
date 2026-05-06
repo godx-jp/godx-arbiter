@@ -43,7 +43,7 @@ func NewTelegramChannel() *TelegramChannel {
 }
 
 // Name implements Channel.
-func (TelegramChannel) Name() string { return "telegram" }
+func (*TelegramChannel) Name() string { return "telegram" }
 
 // Available reports whether token + chat_id are configured.
 func (t *TelegramChannel) Available() bool { return t.token != "" && t.chatID != "" }

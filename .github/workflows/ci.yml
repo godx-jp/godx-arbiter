@@ -49,4 +49,11 @@ jobs:
         run: |
           ext=""
           [ "$GOOS" = "windows" ] && ext=".exe"
-          go build -ldflags "-s -w" -o "arbiter-$GOOS-$GOARCH$ext" ./cmd/arbiter
+          go build -ldflags "-s -w -X main.version=${GITHUB_SHA::7}" -o "arbiter-$GOOS-$GOARCH$ext" ./cmd/arbiter
+          shasum -a 256 "arbiter-$GOOS-$GOARCH$ext" > "arbiter-$GOOS-$GOARCH$ext.sha256"
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arbiter-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            arbiter-${{ matrix.os }}-${{ matrix.arch }}*

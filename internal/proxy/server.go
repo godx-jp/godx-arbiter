@@ -62,9 +62,11 @@ type Server struct {
 // without the proxy package having to depend on them. Each hook may be
 // nil; the proxy treats nil as "no-op" (passthrough).
 type Hooks struct {
-	// PreForward inspects + may rewrite the outbound request body.
-	// Used in Step 13 for routing / translation.
-	PreForward func(provider string, body []byte, header http.Header) ([]byte, http.Header, error)
+	// PreForward inspects + may rewrite the outbound request body and
+	// header. The third return value carries additional headers the
+	// proxy will set on the response back to the client (e.g. routing
+	// diagnostics like X-Arbiter-Routed-To). Used in Step 13.
+	PreForward func(provider string, body []byte, header http.Header) ([]byte, http.Header, http.Header, error)
 
 	// PostResponse inspects + may rewrite the upstream response body
 	// (Step 12 tool gating, Step 13 token logging).
@@ -214,8 +216,9 @@ func (s *Server) proxy(provider, upstream string) http.HandlerFunc {
 		_ = r.Body.Close()
 
 		header := r.Header.Clone()
+		var extraRespHeaders http.Header
 		if s.hooks.PreForward != nil {
-			newBody, newHeader, err := s.hooks.PreForward(provider, body, header)
+			newBody, newHeader, extra, err := s.hooks.PreForward(provider, body, header)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -226,6 +229,7 @@ func (s *Server) proxy(provider, upstream string) http.HandlerFunc {
 			if newHeader != nil {
 				header = newHeader
 			}
+			extraRespHeaders = extra
 		}
 
 		req, err := http.NewRequestWithContext(r.Context(), r.Method, u.String(), bytesReader(body))
@@ -250,6 +254,7 @@ func (s *Server) proxy(provider, upstream string) http.HandlerFunc {
 		isStream := isStreamingContentType(ct)
 		if isStream || s.hooks.PostResponse == nil {
 			copyHeader(w.Header(), resp.Header)
+			mergeHeaders(w.Header(), extraRespHeaders)
 			w.WriteHeader(resp.StatusCode)
 			_, _ = io.Copy(flushingWriter{w}, resp.Body)
 			return
@@ -269,9 +274,18 @@ func (s *Server) proxy(provider, upstream string) http.HandlerFunc {
 			newBody = respBody
 		}
 		copyHeader(w.Header(), resp.Header)
+		mergeHeaders(w.Header(), extraRespHeaders)
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
 		w.WriteHeader(resp.StatusCode)
 		_, _ = w.Write(newBody)
+	}
+}
+
+func mergeHeaders(dst, src http.Header) {
+	for k, vv := range src {
+		for _, v := range vv {
+			dst.Add(k, v)
+		}
 	}
 }
 

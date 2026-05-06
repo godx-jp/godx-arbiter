@@ -64,8 +64,11 @@ right model/CLI to optimize tokens.
 
 ## Status
 
-Pre-alpha. Architecture finalized. Implementation roadmap in
-[docs/ROADMAP.md](docs/ROADMAP.md).
+Alpha. Steps 1–14 of the roadmap landed (full pipeline: fast-path
+policy, slow-path Anthropic agent, MCP server, notify channels, skills,
+adapter framework, LLM proxy with tool gating, model routing, cross-
+provider translation, budget tracking, `delegate_to`, `arbiter explain`,
+distribution scaffolding). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Documentation
 
