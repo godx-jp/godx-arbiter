@@ -1,0 +1,101 @@
+# Fast-path regex policy. Optional companion to rules.md.
+#
+# Evaluated in Go (no LLM). Use for the obvious cases — the LLM agent
+# (rules.md) handles nuance.
+#
+# Order: deny rules first, then allow, then to_agent. Within each list,
+# top-to-bottom; first match wins.
+
+version: 1
+
+# What happens when no rule below matches.
+#   agent   → fall through to LLM (recommended for production projects)
+#   approve → permissive (sandbox / personal)
+#   deny    → paranoid (rarely useful — too many false denies)
+default: agent
+
+# ─── Hard denies ──────────────────────────────────────────────────────
+deny:
+  # Catastrophic deletes
+  - tool: Bash
+    pattern: '\brm\s+-rf\s+/(?!tmp/|home/[^/]+/(node_modules|\.cache|\.tmp))'
+    reason: rm -rf outside whitelisted scratch paths
+
+  - tool: Bash
+    pattern: '\brm\s+-rf\s+(\.|\.\./|\$HOME)'
+    reason: rm -rf relative to cwd or home is too risky
+
+  # Force-push to protected branches
+  - tool: Bash
+    pattern: '\bgit\s+push\b.*--force(?:-with-lease)?\b.*\b(master|main|production)\b'
+    reason: force push to protected branch
+
+  # Edits to secret files
+  - tool: Edit
+    field: file_path
+    pattern: '(\.env(\.|$)|\.pem$|\.key$|\.crt$|credentials|secret|\btoken\b)'
+    reason: secret-bearing file
+
+  - tool: Write
+    field: file_path
+    pattern: '(\.env(\.|$)|\.pem$|\.key$|\.crt$|credentials|secret|\btoken\b)'
+    reason: secret-bearing file
+
+  # Supply-chain risk
+  - tool: Bash
+    pattern: 'curl[^|]*\|\s*(bash|sh|zsh)'
+    reason: piping curl into shell
+
+  - tool: Bash
+    pattern: 'wget[^|]*\|\s*(bash|sh|zsh)'
+    reason: piping wget into shell
+
+# ─── Auto-approve obvious safe operations ────────────────────────────
+allow:
+  - tool: Read
+    reason: read-only by definition
+
+  - tool: Glob
+    reason: read-only by definition
+
+  - tool: Grep
+    reason: read-only by definition
+
+  # Read-only / informational Bash
+  - tool: Bash
+    pattern: '^(ls|cat|head|tail|wc|stat|file|which|whereis|type|pwd|env|date|hostname|whoami|id)\b'
+    reason: read-only system command
+
+  - tool: Bash
+    pattern: '^(grep|rg|fd|find|locate|ack|ag)\b'
+    reason: read-only search command
+
+  - tool: Bash
+    pattern: '^git\s+(status|log|diff|show|branch|remote|config\s+--get|rev-parse)\b'
+    reason: read-only git command
+
+  - tool: Bash
+    pattern: '^(go|npm|pnpm|yarn|cargo|make)\s+(test|vet|fmt|lint|build|check|version|--version|--help)\b'
+    reason: read-only or test command
+
+  - tool: Bash
+    pattern: '^(node|python|python3|go)\s+--version\b'
+    reason: version check
+
+# ─── Force LLM judgment on these (override allow) ────────────────────
+# Useful when a regex would otherwise auto-approve, but the area is
+# sensitive enough to want LLM context.
+to_agent:
+  - tool: Edit
+    field: file_path
+    pattern: 'backend/internal/config/'
+    reason: deployment-critical config — let agent reason about the change
+
+  - tool: Edit
+    field: file_path
+    pattern: '^(go|package)\.(mod|sum|json|lock)$'
+    reason: dependency change — agent should check rules.md "new dependencies" rule
+
+  - tool: Bash
+    pattern: '\bsudo\b'
+    reason: sudo always escalates via agent

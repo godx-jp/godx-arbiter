@@ -1,0 +1,29 @@
+# Go build outputs
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env / secrets
+.env
+.env.local
+*.local.yaml
+
+# npm wrapper
+/npm/node_modules/
+/npm/*.tgz
+/npm/binary-cache/
+
+# Logs
+*.log
+/logs/
