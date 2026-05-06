@@ -53,14 +53,12 @@ func newStreamingTransform(provider string, pol *config.Policy, in io.ReadCloser
 // are surfaced so the caller can decide whether to fall back to
 // non-streaming behavior.
 func (s *streamingTransform) Run() error {
-	switch s.provider {
-	case "anthropic":
-		return s.runAnthropic()
-	default:
-		// Unknown shape — passthrough so we don't break the stream.
-		_, err := io.Copy(s.flushingWriter(), s.in)
-		return err
+	if fn, ok := streamingProviders[s.provider]; ok {
+		return fn(s)
 	}
+	// Unknown shape — passthrough so we don't break the stream.
+	_, err := io.Copy(s.flushingWriter(), s.in)
+	return err
 }
 
 func (s *streamingTransform) flushingWriter() io.Writer {
@@ -413,10 +411,11 @@ func mustJSON(v any) []byte {
 }
 
 // shouldStreamingGate reports whether the proxy should drive an SSE
-// transformer for this response. Today: only Anthropic streams when a
-// fast-path policy exists. OpenAI / Gemini fall through to passthrough
-// until per-provider transformers are written; not gating those is
-// safe — we still gate non-streaming responses for them.
+// transformer for this response. Anthropic + OpenAI streams are gated
+// when a fast-path policy exists; Gemini's streaming format is
+// passed through (its function-call shape is buffered server-side
+// rather than chunk-streamed, so non-streaming gating already covers
+// the common path).
 func (w *Wiring) shouldStreamingGate(provider, contentType string) bool {
 	if w == nil || w.Policy == nil {
 		return false
@@ -425,8 +424,12 @@ func (w *Wiring) shouldStreamingGate(provider, contentType string) bool {
 		return false
 	}
 	switch provider {
-	case "anthropic":
+	case "anthropic", "openai":
 		return true
 	}
 	return false
+}
+
+func init() {
+	streamingProviders["anthropic"] = func(s *streamingTransform) error { return s.runAnthropic() }
 }

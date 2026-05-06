@@ -43,14 +43,25 @@ type Channel interface {
 	Ask(ctx context.Context, req EscalateRequest) (Reply, error)
 }
 
-// Registry holds the configured channels.
+// Registry holds the configured channels and an optional Policy
+// (quiet hours + dedup) applied before dispatch.
 type Registry struct {
 	mu       sync.RWMutex
 	channels map[string]Channel
+	policy   *Policy
 }
 
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry { return &Registry{channels: map[string]Channel{}} }
+
+// WithPolicy attaches a notification Policy. Subsequent Dispatch calls
+// honor quiet hours + dedup. Pass nil to disable both.
+func (r *Registry) WithPolicy(p *Policy) *Registry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.policy = p
+	return r
+}
 
 // Register adds (or replaces) a channel.
 func (r *Registry) Register(c Channel) {
@@ -106,6 +117,11 @@ func Escalate(ctx context.Context, req EscalateRequest) (Reply, error) {
 // configure 1-2 channels, and racing introduces user-confusion (which
 // channel did I reply to?). Race semantics can be added later if real
 // usage demands it.
+//
+// Policy hooks: when a Policy is attached, identical questions seen
+// within the dedup window short-circuit (return Timeout to keep the
+// caller's on_timeout fallback driving the decision), and quiet-hours
+// suppression rewrites req.Channels before iteration.
 func (r *Registry) Dispatch(ctx context.Context, req EscalateRequest) (Reply, error) {
 	if req.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -117,6 +133,16 @@ func (r *Registry) Dispatch(ctx context.Context, req EscalateRequest) (Reply, er
 	}
 	if len(req.Options) == 0 {
 		req.Options = []string{"approve", "deny"}
+	}
+
+	r.mu.RLock()
+	pol := r.policy
+	r.mu.RUnlock()
+	if pol != nil {
+		if pol.IsDuplicate(req) {
+			return Reply{Timeout: true, Channel: "deduped"}, nil
+		}
+		req.Channels = pol.FilterChannels(req.Channels)
 	}
 
 	var lastErr error

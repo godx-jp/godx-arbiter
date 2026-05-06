@@ -62,7 +62,11 @@ func (w *Wiring) Hooks() Hooks {
 }
 
 func (w *Wiring) streamTransform(provider string, in io.ReadCloser, out io.Writer) error {
-	if w.Policy == nil || provider != "anthropic" {
+	if w.Policy == nil {
+		_, err := io.Copy(out, in)
+		return err
+	}
+	if _, ok := streamingProviders[provider]; !ok {
 		_, err := io.Copy(out, in)
 		return err
 	}

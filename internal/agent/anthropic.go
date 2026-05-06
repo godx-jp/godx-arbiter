@@ -43,11 +43,22 @@ func NewAnthropicLLM(opts ...option.RequestOption) (*AnthropicLLM, error) {
 
 // Send implements LLM. It translates the agent's normalized request
 // into Anthropic's MessageNewParams shape and back.
+//
+// Prompt caching: the system prompt (rules.md + skills + action JSON)
+// is stable across iterations of one decision and across consecutive
+// decisions in a session. We mark it with cache_control so subsequent
+// calls hit the prompt cache (per docs/MODEL_ROUTING.md
+// "Token-optimization tactics"). Anthropic accepts up to 4 cache
+// breakpoints per request; we use one on the system block.
 func (a *AnthropicLLM) Send(ctx context.Context, req LLMRequest) (*LLMReply, error) {
+	system := []anthropic.TextBlockParam{{
+		Text: req.System,
+		CacheControl: anthropic.NewCacheControlEphemeralParam(),
+	}}
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(req.Model),
 		MaxTokens: req.MaxTokens,
-		System:    []anthropic.TextBlockParam{{Text: req.System}},
+		System:    system,
 		Messages:  toAnthropicMessages(req.Turns),
 		Tools:     toAnthropicTools(req.Tools),
 	}

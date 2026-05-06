@@ -1,0 +1,65 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errcheck       # caller forgot to handle errors
+    - gosec          # common security issues
+    - govet          # the standard suite
+    - ineffassign    # unused assignments
+    - misspell       # English spelling in comments + identifiers
+    - revive         # opinionated style checks (replaces golint)
+    - staticcheck    # superset of stylecheck + many bug-finders
+    - unconvert      # redundant type conversions
+    - unparam        # unused function parameters (lower-noise variant)
+    - unused         # dead code
+
+  settings:
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+          arguments:
+            - "checkPrivateReceivers"
+            - "disableStutteringCheck"
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: var-declaration
+
+    gosec:
+      excludes:
+        # Errors from io.WriteString to a bufio.Writer are extremely
+        # rare in practice; we already check the next Flush().
+        - G104
+        # File permissions: 0644 / 0755 are appropriate for our config
+        # files; gosec wants 0600 / 0700 by default.
+        - G306
+        - G301
+        # Subprocess invocation in delegate_to is the whole point.
+        - G204
+
+  exclusions:
+    rules:
+      # Tests intentionally use t.TempDir + 0o644 etc.
+      - linters: [gosec]
+        path: _test\.go
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

@@ -66,6 +66,10 @@ func main() {
 		runExplain(args)
 	case "auth":
 		runAuth(args)
+	case "uninstall":
+		runUninstall(args)
+	case "logs":
+		runLogs(args)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
 		printUsage(os.Stderr)
@@ -91,6 +95,8 @@ Commands:
   explain <session-id>  Replay past decisions with full rationale.
   auth <set|get|list|delete> <provider>
                         Manage provider API keys (stored in OS keychain).
+  uninstall             Remove arbiter hooks/MCP from ~/.claude/settings.json.
+  logs                  Tail or filter the decision eventlog.
   version               Print version.
   help                  This message.
 `)
@@ -179,6 +185,10 @@ func hookPreTool() {
 			meta["config_error"] = err.Error()
 		}
 	}
+
+	// Apply quiet-hours + dedup policy from rules.md front matter
+	// before any escalation could fire.
+	applyNotifyPolicy(rulesOf(proj))
 
 	// Front-matter kill switch: rules.md `enabled: false` → approve all.
 	if proj.HasRules() && !proj.Rules.IsEnabled() {
@@ -342,6 +352,17 @@ func notifyChannels(r *config.Rules) []string {
 		return []string{"desktop"}
 	}
 	return r.FrontMatter.NotifyChannels
+}
+
+// applyNotifyPolicy installs quiet-hours + dedup on the global notify
+// registry from the project's rules.md front matter. Idempotent — the
+// hook process is short-lived so overhead is negligible.
+func applyNotifyPolicy(r *config.Rules) {
+	if r == nil {
+		return
+	}
+	dedup := 60 * time.Second // default per docs/RULES_SPEC.md example
+	notify.Default.WithPolicy(notify.NewPolicy(r.FrontMatter.QuietHours, dedup))
 }
 
 func timeoutFallback(r *config.Rules) string {

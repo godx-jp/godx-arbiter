@@ -26,7 +26,13 @@ type doctorReport struct {
 func runDoctor(args []string) {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	notifyTest := fs.Bool("notify-test", false, "send a test message via every available notification channel")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON instead of the human report")
 	_ = fs.Parse(args)
+
+	if *jsonOut {
+		emitDoctorJSON()
+		return
+	}
 
 	rep := buildDoctorReport(os.Stderr)
 	for _, s := range rep.Sections {
@@ -41,6 +47,57 @@ func runDoctor(args []string) {
 	if !rep.OK {
 		os.Exit(1)
 	}
+}
+
+// emitDoctorJSON renders a JSON document with the same data the
+// human-readable report covers. Stable schema so scripts can parse.
+func emitDoctorJSON() {
+	report := map[string]any{
+		"version": version,
+	}
+	if exe, err := os.Executable(); err == nil {
+		report["binary_path"] = exe
+	}
+	report["env"] = map[string]any{
+		"ANTHROPIC_API_KEY":      os.Getenv("ANTHROPIC_API_KEY") != "",
+		"GODX_ARBITER_HOME":      os.Getenv("GODX_ARBITER_HOME"),
+		"GODX_ARBITER_LOG_LEVEL": os.Getenv("GODX_ARBITER_LOG_LEVEL"),
+		"GODX_ARBITER_DISABLED":  os.Getenv("GODX_ARBITER_DISABLED"),
+	}
+
+	cwd, _ := os.Getwd()
+	proj, err := config.LoadFromCwd(cwd)
+	switch {
+	case err == nil:
+		project := map[string]any{
+			"cwd":         cwd,
+			"root":        proj.Root,
+			"has_rules":   proj.HasRules(),
+			"has_policy":  proj.HasPolicy(),
+			"warnings":    proj.Warnings,
+		}
+		if proj.HasPolicy() {
+			project["policy_rule_count"] = len(proj.Policy.Allow) + len(proj.Policy.Deny) + len(proj.Policy.ToAgent)
+			project["policy_default"] = proj.Policy.Default
+		}
+		if proj.HasRules() {
+			project["rules_enabled"] = proj.Rules.IsEnabled()
+		}
+		report["project"] = project
+	case errors.Is(err, projectfind.ErrNotFound):
+		report["project"] = map[string]any{
+			"cwd":    cwd,
+			"status": "no .arbiter/ found",
+		}
+	default:
+		report["project"] = map[string]any{
+			"cwd":   cwd,
+			"error": err.Error(),
+		}
+	}
+
+	out, _ := jsonMarshalIndent(report)
+	fmt.Println(out)
 }
 
 func runNotifyTest() bool {

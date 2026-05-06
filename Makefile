@@ -6,7 +6,7 @@ LDFLAGS  := -s -w -X main.version=$(VERSION)
 
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: all build test fmt vet tidy clean cross-compile run-pretool smoke
+.PHONY: all build test fmt vet lint tidy clean cross-compile run-pretool smoke
 
 all: build
 
@@ -22,6 +22,16 @@ fmt:
 
 vet:
 	$(GO) vet ./...
+
+# lint runs golangci-lint if it's on PATH; otherwise falls back to vet
+# so contributors without the tool still get something useful.
+lint:
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run ./...; \
+	else \
+		echo "golangci-lint not installed — running 'go vet' instead"; \
+		$(GO) vet ./...; \
+	fi
 
 tidy:
 	$(GO) mod tidy
