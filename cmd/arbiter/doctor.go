@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/godx-team/godx-arbiter/internal/config"
+	"github.com/godx-team/godx-arbiter/internal/notify"
 	"github.com/godx-team/godx-arbiter/internal/projectfind"
 )
 
@@ -19,14 +23,62 @@ type doctorReport struct {
 
 // runDoctor diagnoses the local arbiter installation: binary version,
 // environment, project detection, parsed config, warnings.
-func runDoctor(_ []string) {
+func runDoctor(args []string) {
+	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
+	notifyTest := fs.Bool("notify-test", false, "send a test message via every available notification channel")
+	_ = fs.Parse(args)
+
 	rep := buildDoctorReport(os.Stderr)
 	for _, s := range rep.Sections {
 		fmt.Fprint(os.Stdout, s)
 	}
+	if *notifyTest {
+		ok := runNotifyTest()
+		if !ok {
+			rep.OK = false
+		}
+	}
 	if !rep.OK {
 		os.Exit(1)
 	}
+}
+
+func runNotifyTest() bool {
+	fmt.Println("Notification channels (live test)")
+	registry := notify.DefaultRegistry()
+	all := registry.All()
+	if len(all) == 0 {
+		fmt.Println("  (none registered)")
+		return true
+	}
+	ok := true
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, ch := range all {
+		name := ch.Name()
+		if !ch.Available() {
+			fmt.Printf("  %-10s ✗ unavailable (skipped)\n", name)
+			continue
+		}
+		fmt.Printf("  %-10s … sending\n", name)
+		reply, err := ch.Ask(ctx, notify.EscalateRequest{
+			Question: fmt.Sprintf("godx-arbiter doctor: test notification (%s) — please ignore", name),
+			Options:  []string{"approve", "deny"},
+			Context:  map[string]any{"test": true, "ts": time.Now().Format(time.RFC3339)},
+			Timeout:  20 * time.Second,
+		})
+		switch {
+		case err != nil:
+			fmt.Printf("  %-10s ✗ %v\n", name, err)
+			ok = false
+		case reply.Timeout:
+			fmt.Printf("  %-10s ⚠ delivered (no reply expected for this channel)\n", name)
+		default:
+			fmt.Printf("  %-10s ✓ replied %q via %s\n", name, reply.Reply, reply.Channel)
+		}
+	}
+	fmt.Println()
+	return ok
 }
 
 func buildDoctorReport(stderr io.Writer) doctorReport {

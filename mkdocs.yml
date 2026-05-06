@@ -1,0 +1,61 @@
+site_name: godx-arbiter
+site_description: LLM-based decision arbiter for AI coding CLIs
+site_url: https://godx-team.github.io/godx-arbiter
+repo_url: https://github.com/godx-team/godx-arbiter
+repo_name: godx-team/godx-arbiter
+edit_uri: edit/main/docs/
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.instant
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Architecture: ARCHITECTURE.md
+  - Decision flow: DECISION_FLOW.md
+  - Configuration:
+      - rules.md spec: RULES_SPEC.md
+      - policy.yaml spec: POLICY_SPEC.md
+  - Multi-CLI:
+      - Adapters + proxy: MULTI_CLI.md
+      - Model routing: MODEL_ROUTING.md
+  - Integrations:
+      - MCP tools: MCP_TOOLS.md
+  - Install: INSTALL.md
+  - Roadmap: ROADMAP.md
+  - Decisions log: DECISIONS.md

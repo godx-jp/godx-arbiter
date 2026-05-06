@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 )
@@ -71,6 +72,12 @@ type Hooks struct {
 	// PostResponse inspects + may rewrite the upstream response body
 	// (Step 12 tool gating, Step 13 token logging).
 	PostResponse func(provider string, requestBody, responseBody []byte) ([]byte, error)
+
+	// StreamTransform, if non-nil, is called for streaming responses
+	// (text/event-stream) so the wiring can rewrite tool_use chunks
+	// in-place. The default (nil) is passthrough. Either implementation
+	// owns the SSE protocol: read from in, write to out.
+	StreamTransform func(provider string, in io.ReadCloser, out io.Writer) error
 }
 
 // New creates a proxy server with default upstream + an internal HTTP
@@ -252,7 +259,22 @@ func (s *Server) proxy(provider, upstream string) http.HandlerFunc {
 
 		ct := resp.Header.Get("Content-Type")
 		isStream := isStreamingContentType(ct)
-		if isStream || s.hooks.PostResponse == nil {
+		if isStream {
+			copyHeader(w.Header(), resp.Header)
+			mergeHeaders(w.Header(), extraRespHeaders)
+			w.WriteHeader(resp.StatusCode)
+			if s.hooks.StreamTransform != nil {
+				if err := s.hooks.StreamTransform(provider, resp.Body, flushingWriter{w}); err != nil {
+					// Once headers are flushed, we can't return a status
+					// — log and let the connection close.
+					fmt.Fprintf(os.Stderr, "[arbiter] proxy stream transform: %v\n", err)
+				}
+				return
+			}
+			_, _ = io.Copy(flushingWriter{w}, resp.Body)
+			return
+		}
+		if s.hooks.PostResponse == nil {
 			copyHeader(w.Header(), resp.Header)
 			mergeHeaders(w.Header(), extraRespHeaders)
 			w.WriteHeader(resp.StatusCode)

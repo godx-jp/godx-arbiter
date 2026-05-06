@@ -64,6 +64,8 @@ func main() {
 		runUsage(args)
 	case "explain":
 		runExplain(args)
+	case "auth":
+		runAuth(args)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
 		printUsage(os.Stderr)
@@ -87,6 +89,8 @@ Commands:
   proxy                 Run local LLM proxy for non-Claude CLIs.
   usage                 Token + cost report.
   explain <session-id>  Replay past decisions with full rationale.
+  auth <set|get|list|delete> <provider>
+                        Manage provider API keys (stored in OS keychain).
   version               Print version.
   help                  This message.
 `)

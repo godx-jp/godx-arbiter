@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+
+	"github.com/godx-team/godx-arbiter/internal/auth"
 )
 
 // AnthropicLLM is the production LLM driver. It wraps the official
@@ -20,15 +21,21 @@ type AnthropicLLM struct {
 	client anthropic.Client
 }
 
-// NewAnthropicLLM constructs the driver. Returns an error if no API
-// key is reachable (env var unset and none supplied). The error is
-// surfaced so callers can fall back to ADR-005 fail-open semantics.
+// NewAnthropicLLM constructs the driver. Resolves the API key via
+// internal/auth (env var → OS keychain → fallback file). Returns an
+// error if nothing is configured *and* no overriding RequestOption was
+// passed; the error is surfaced so callers can fall back to ADR-005
+// fail-open semantics.
 func NewAnthropicLLM(opts ...option.RequestOption) (*AnthropicLLM, error) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" && os.Getenv("ANTHROPIC_AUTH_TOKEN") == "" {
+	key, _ := auth.Get(auth.ProviderAnthropic)
+	if key == "" {
 		// Allow override via opts in tests / sandboxes.
 		if len(opts) == 0 {
-			return nil, errors.New("anthropic: no ANTHROPIC_API_KEY in env")
+			return nil, errors.New("anthropic: no API key (try `arbiter auth set anthropic` or set ANTHROPIC_API_KEY)")
 		}
+	}
+	if key != "" {
+		opts = append([]option.RequestOption{option.WithAPIKey(key)}, opts...)
 	}
 	c := anthropic.NewClient(opts...)
 	return &AnthropicLLM{client: c}, nil

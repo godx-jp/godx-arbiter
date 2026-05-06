@@ -3,6 +3,7 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -54,9 +55,19 @@ func NewWiring(proj *policycfg.Project, cli string) *Wiring {
 // Hooks returns Server.Hooks that apply tool gating + routing + budget.
 func (w *Wiring) Hooks() Hooks {
 	return Hooks{
-		PreForward:   w.preForward,
-		PostResponse: w.postResponse,
+		PreForward:      w.preForward,
+		PostResponse:    w.postResponse,
+		StreamTransform: w.streamTransform,
 	}
+}
+
+func (w *Wiring) streamTransform(provider string, in io.ReadCloser, out io.Writer) error {
+	if w.Policy == nil || provider != "anthropic" {
+		_, err := io.Copy(out, in)
+		return err
+	}
+	st := newStreamingTransform(provider, w.Policy, in, out)
+	return st.Run()
 }
 
 func (w *Wiring) preForward(provider string, body []byte, header http.Header) ([]byte, http.Header, http.Header, error) {

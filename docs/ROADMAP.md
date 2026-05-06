@@ -150,11 +150,14 @@ Deliverables:
 - Output: action, fast-path eval, agent transcript, tools called,
   final decision, rules.md SHA at time of decision
 
-## Step 10 — Docs site (optional, polish) ◯
+## Step 10 — Docs site (optional, polish) ●
 
-**Goal**: docs.godx-arbiter.dev or similar. mdBook / Docusaurus.
+**Goal**: docs.godx-arbiter.dev or similar.
 
-Not required for v1.
+Shipped: mkdocs-material configuration at `mkdocs.yml`, GitHub Actions
+workflow at `.github/workflows/docs.yml` deploying to GitHub Pages on
+push to `main`. Source is the same `docs/*.md` files that ship with the
+repo, so docs and code stay in sync.
 
 ## Step 11 — Adapter framework + proxy server skeleton ●
 
