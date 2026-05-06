@@ -26,17 +26,31 @@ Done criterion verified: smoke test outputs
 `{"decision":"approve","reason":"step-1-stub: tool=Read session=smoke"}`
 in < 10ms (below `time -p` resolution). Binary 1.7 MB stripped.
 
-## Step 2 — Project detection + config loading ◯
+## Step 2 — Project detection + config loading ●
 
 **Goal**: arbiter finds `.arbiter/rules.md` + `policy.yaml` from cwd,
 parses, caches.
 
 Deliverables:
-- `internal/projectfind/` — walk-up search
-- `internal/config/rules.go` — Markdown + front matter parser
-- `internal/config/policy.go` — YAML parser, schema validator
-- mtime-based cache
-- `arbiter doctor` reports detected project + parsed config
+- ✅ `internal/projectfind/` — walk-up search, stops at FS root
+- ✅ `internal/config/frontmatter.go` — YAML front matter splitter
+  (no MD parser dep; agent reads raw body)
+- ✅ `internal/config/rules.go` — front-matter validation +
+  `IsEnabled()` kill switch
+- ✅ `internal/config/policy.go` — YAML schema validation, regex
+  compile-at-load, bad rules collected as warnings (not fatal)
+- ✅ `internal/config/project.go` — combined loader; partial config OK
+- ✅ `internal/config/cache.go` — mtime-keyed, sync.RWMutex,
+  generic `getCached[T]`
+- ✅ `arbiter doctor` — binary/env/project sections, exit 1 on warnings
+- ✅ Caught real bug: example `policy.yaml` used negative-lookahead
+  `(?!...)` (Perl) which Go RE2 rejects → fixed example + documented
+  RE2 limits in `docs/POLICY_SPEC.md`
+- ✅ Dependency added: `gopkg.in/yaml.v3 v3.0.1`
+- ✅ 28 unit tests across 4 packages, all passing under `-race`
+
+Done criterion verified: doctor reports detected project, parsed config,
+exits 0 in clean state and exits 1 with warnings.
 
 ## Step 3 — Fast-path policy engine ◯
 

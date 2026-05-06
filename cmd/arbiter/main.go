@@ -16,10 +16,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
+	"github.com/godx-team/godx-arbiter/internal/config"
 	"github.com/godx-team/godx-arbiter/internal/hookio"
+	"github.com/godx-team/godx-arbiter/internal/projectfind"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=..."
@@ -36,12 +39,14 @@ func main() {
 	switch cmd {
 	case "hook":
 		runHook(args)
+	case "doctor":
+		runDoctor(args)
 	case "version", "--version", "-v":
 		fmt.Println("godx-arbiter", version)
 	case "help", "--help", "-h":
 		usage(os.Stdout)
-	case "init", "doctor", "mcp", "proxy", "usage", "explain":
-		fmt.Fprintf(os.Stderr, "%s: not implemented in step 1 of the roadmap\n", cmd)
+	case "init", "mcp", "proxy", "usage", "explain":
+		fmt.Fprintf(os.Stderr, "%s: not implemented yet (see docs/ROADMAP.md)\n", cmd)
 		os.Exit(2)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
@@ -95,25 +100,58 @@ func runHook(args []string) {
 
 // hookPreTool is the PreToolUse entrypoint.
 //
-// Step 1 behavior: parse stdin, return approve. Real decide pipeline
-// (project detection, fast-path policy, slow-path agent) lands in
-// steps 2-4.
+// Through Step 2: parse stdin, detect project, load config, return
+// approve with metadata. The fast-path policy engine and the slow-path
+// agent (Steps 3 and 4) plug in after this scaffolding.
 func hookPreTool() {
 	defer failOpen("pretool")
 
 	in, err := hookio.ReadInput(os.Stdin)
 	if err != nil {
 		// Fail open per ADR-005 (default on_error: approve).
-		_ = hookio.WriteApprove(os.Stdout, "")
+		_ = hookio.WriteAllow(os.Stdout, "")
 		fmt.Fprintf(os.Stderr, "[arbiter] pretool: read input: %v\n", err)
 		return
 	}
 
-	// Stub: approve everything. The reason is logged to stderr and
-	// included in the decision metadata so it's visible in any
-	// diagnostic output but does not surface to the user as a blocker.
-	stub := fmt.Sprintf("step-1-stub: tool=%s session=%s", in.ToolName, in.SessionID)
-	_ = hookio.WriteApprove(os.Stdout, stub)
+	meta := map[string]any{
+		"step":       "2-stub",
+		"tool":       in.ToolName,
+		"session_id": in.SessionID,
+	}
+
+	// Project detection. cwd may be empty for non-Claude-Code callers
+	// in proxy mode (Step 11+); try cwd then process cwd as fallback.
+	cwd := in.Cwd
+	if cwd == "" {
+		if c, _ := os.Getwd(); c != "" {
+			cwd = c
+		}
+	}
+	if cwd != "" {
+		switch proj, err := config.LoadFromCwd(cwd); {
+		case err == nil:
+			meta["project_root"] = proj.Root
+			meta["has_rules"] = proj.HasRules()
+			meta["has_policy"] = proj.HasPolicy()
+			if proj.HasPolicy() {
+				meta["policy_rule_count"] = len(proj.Policy.Allow) + len(proj.Policy.Deny) + len(proj.Policy.ToAgent)
+			}
+			if !proj.IsConfigured() {
+				meta["note"] = "no rules.md or policy.yaml — using built-in defaults"
+			}
+		case errors.Is(err, projectfind.ErrNotFound):
+			meta["project_root"] = ""
+			meta["note"] = "no .arbiter/ in cwd or any ancestor — built-in defaults"
+		default:
+			// Hard parse error somewhere in the project's config. Log
+			// to stderr but still fail-open (ADR-005).
+			fmt.Fprintf(os.Stderr, "[arbiter] pretool: project config: %v\n", err)
+			meta["config_error"] = err.Error()
+		}
+	}
+
+	_ = hookio.WriteAllowWithMeta(os.Stdout, "", meta)
 }
 
 // hookNotification is fired when Claude needs user attention. Step 1:
@@ -141,7 +179,7 @@ func hookPostTool() {
 // in arbiter. Logs the panic to stderr for diagnosis.
 func failOpen(hook string) {
 	if r := recover(); r != nil {
-		_ = hookio.WriteApprove(os.Stdout, "")
+		_ = hookio.WriteAllow(os.Stdout, "")
 		fmt.Fprintf(os.Stderr, "[arbiter] %s: panic recovered: %v\n", hook, r)
 	}
 }

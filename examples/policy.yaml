@@ -15,15 +15,23 @@ version: 1
 default: agent
 
 # ─── Hard denies ──────────────────────────────────────────────────────
+#
+# Note: Go's RE2 engine does NOT support lookahead/lookbehind/backrefs.
+# For "deny X EXCEPT in Y" semantics, prefer one of:
+#   1. Match the canonical bad cases positively (preferred — see below).
+#   2. Move the rule to rules.md so the LLM can reason about it.
 deny:
-  # Catastrophic deletes
+  # Catastrophic deletes — rm -rf rooted at system-critical paths.
   - tool: Bash
-    pattern: '\brm\s+-rf\s+/(?!tmp/|home/[^/]+/(node_modules|\.cache|\.tmp))'
-    reason: rm -rf outside whitelisted scratch paths
+    pattern: '\brm\s+-rf\s+/(etc|usr|var|opt|bin|sbin|home|root|boot|sys|proc|lib|lib64|dev)\b'
+    reason: rm -rf of system-critical root directory
 
   - tool: Bash
     pattern: '\brm\s+-rf\s+(\.|\.\./|\$HOME)'
     reason: rm -rf relative to cwd or home is too risky
+
+  # Note: "rm -rf outside /tmp/, node_modules/, dist/" lives in rules.md.
+  # The agent reads the proposed path and reasons about it.
 
   # Force-push to protected branches
   - tool: Bash

@@ -70,7 +70,7 @@ Within each list, top-to-bottom; first match wins.
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `tool` | string | yes | Claude Code tool name: `Bash`, `Read`, `Edit`, `Write`, `Grep`, `Glob`, `Task`, etc. Use `"*"` for any tool |
-| `pattern` | string | no | Go-flavor regex. If absent, matches all calls of `tool` |
+| `pattern` | string | no | Go RE2 regex. If absent, matches all calls of `tool`. **No lookahead/lookbehind/backrefs** — see "RE2 limitations" below |
 | `field` | string | no | Which input field to match against (see Field selectors below) |
 | `reason` | string | no | Logged with the decision; shown to user / Claude |
 | `confidence` | enum | no | Informational only; future use for explainability |
@@ -118,6 +118,30 @@ on tool call:
 `matches(rule, call)`:
 1. `rule.tool == "*"` OR `rule.tool == call.tool_name`
 2. AND if `rule.pattern` set: `regexp.Match(rule.pattern, field_value)`
+
+## RE2 limitations
+
+Patterns are compiled with Go's `regexp` package, which uses the RE2
+engine. RE2 trades a few features for guaranteed linear-time evaluation:
+
+- ❌ No lookahead `(?!...)` / `(?=...)`
+- ❌ No lookbehind `(?<!...)` / `(?<=...)`
+- ❌ No backreferences `\1`, `\2`
+- ✅ All other PCRE-style constructs work normally
+
+For "deny X EXCEPT Y" semantics, do one of:
+
+1. **Match the bad cases positively.** Instead of "rm -rf outside /tmp"
+   (which needs a lookahead), enumerate dangerous root paths:
+   ```yaml
+   pattern: '\brm\s+-rf\s+/(etc|usr|var|opt|bin|home|root)\b'
+   ```
+2. **Move the rule to `rules.md`.** The LLM agent can reason about
+   "deny rm -rf outside /tmp" naturally; that's exactly the kind of
+   nuance rules.md is for.
+
+Invalid regexes are caught at load time: the offending rule is dropped
+and a warning is recorded. `arbiter doctor` surfaces these warnings.
 
 ## Performance
 
