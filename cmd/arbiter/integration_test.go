@@ -173,3 +173,117 @@ func TestIntegration_DoctorJSON(t *testing.T) {
 		t.Errorf("missing env section: %v", rep)
 	}
 }
+
+// withFakeClaude prepends the fake-claude script (as `claude`) to PATH
+// for `arbiter run` integration tests. Returns the env entries the
+// caller should pass to runHook so the override sticks.
+func withFakeClaudeForRun(t *testing.T, mode string) []string {
+	t.Helper()
+	src := filepath.Join("..", "..", "internal", "runner", "testdata", "bin", "fake-claude.sh")
+	abs, err := filepath.Abs(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	if err := os.Symlink(abs, filepath.Join(binDir, "claude")); err != nil {
+		t.Fatalf("symlink fake claude: %v", err)
+	}
+	return []string{
+		"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"FAKE_CLAUDE_MODE=" + mode,
+	}
+}
+
+func TestIntegration_Run_HappyPath(t *testing.T) {
+	home := t.TempDir()
+	env := append(
+		withFakeClaudeForRun(t, "ok"),
+		"GODX_ARBITER_HOME="+home,
+		"GODX_ARBITER_RUNS_DIR="+filepath.Join(home, "runs"),
+	)
+	stdout, stderr, exit := runHook(t,
+		[]string{"run", "--quiet", "--inherit-env", "--cwd", t.TempDir(), "--timeout", "10s", "--", "say hi"},
+		"", env...)
+	if exit != 0 {
+		t.Fatalf("exit = %d\nstdout=%s\nstderr=%s", exit, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "completed") {
+		t.Errorf("expected 'completed' in stderr summary: %s", stderr)
+	}
+}
+
+func TestIntegration_Run_MidStreamFailureMapsExit1(t *testing.T) {
+	home := t.TempDir()
+	env := append(
+		withFakeClaudeForRun(t, "midfail"),
+		"GODX_ARBITER_HOME="+home,
+		"GODX_ARBITER_RUNS_DIR="+filepath.Join(home, "runs"),
+	)
+	_, _, exit := runHook(t,
+		[]string{"run", "--quiet", "--inherit-env", "--cwd", t.TempDir(), "--timeout", "10s", "--", "x"},
+		"", env...)
+	if exit != 1 {
+		t.Errorf("exit = %d, want 1", exit)
+	}
+}
+
+func TestIntegration_Run_TimeoutMapsExit124(t *testing.T) {
+	home := t.TempDir()
+	env := append(
+		withFakeClaudeForRun(t, "sleep"),
+		"GODX_ARBITER_HOME="+home,
+		"GODX_ARBITER_RUNS_DIR="+filepath.Join(home, "runs"),
+	)
+	start := time.Now()
+	_, _, exit := runHook(t,
+		[]string{"run", "--quiet", "--inherit-env", "--cwd", t.TempDir(), "--timeout", "1s", "--", "x"},
+		"", env...)
+	elapsed := time.Since(start)
+	if exit != 124 {
+		t.Errorf("exit = %d, want 124", exit)
+	}
+	if elapsed > 9*time.Second {
+		t.Errorf("timeout took %v — process group teardown stalled", elapsed)
+	}
+}
+
+func TestIntegration_Run_UnsafeRefusedWithoutEnv(t *testing.T) {
+	home := t.TempDir()
+	env := append(
+		withFakeClaudeForRun(t, "ok"),
+		"GODX_ARBITER_HOME="+home,
+		"GODX_ARBITER_RUNS_DIR="+filepath.Join(home, "runs"),
+		"GODX_ARBITER_ALLOW_UNSAFE=", // explicitly empty
+	)
+	stdout, stderr, exit := runHook(t,
+		[]string{"run", "--quiet", "--inherit-env", "--cwd", t.TempDir(), "--unsafe-skip-permissions", "--", "x"},
+		"", env...)
+	if exit != 2 {
+		t.Errorf("exit = %d, want 2 (unsafe refused)\nstdout=%s\nstderr=%s", exit, stdout, stderr)
+	}
+}
+
+func TestIntegration_Run_RunListEmpty(t *testing.T) {
+	home := t.TempDir()
+	env := []string{
+		"GODX_ARBITER_HOME=" + home,
+		"GODX_ARBITER_RUNS_DIR=" + filepath.Join(home, "runs"),
+	}
+	stdout, _, exit := runHook(t, []string{"run", "--list"}, "", env...)
+	if exit != 0 {
+		t.Errorf("exit = %d", exit)
+	}
+	if !strings.Contains(stdout, "no runs recorded yet") {
+		t.Errorf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestIntegration_Run_HelpInUsage(t *testing.T) {
+	stdout, _, _ := runHook(t, []string{"help"}, "")
+	if !strings.Contains(stdout, "run [flags]") {
+		t.Errorf("printUsage missing arbiter run section: %s", stdout)
+	}
+	if !strings.Contains(stdout, "--resume ID") && !strings.Contains(stdout, "--resume") {
+		t.Errorf("printUsage missing --resume flag mention: %s", stdout)
+	}
+}

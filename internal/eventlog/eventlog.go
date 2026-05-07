@@ -31,13 +31,29 @@ type Event struct {
 	Project    string         `json:"project,omitempty"`
 	Tool       string         `json:"tool,omitempty"`
 	InputSum   string         `json:"input_summary,omitempty"`
-	Path       string         `json:"path,omitempty"` // fast-path | slow-path | escalation | kill-switch
+	Path       string         `json:"path,omitempty"` // fast-path | slow-path | escalation | kill-switch | run
 	Decision   string         `json:"decision"`
 	Reason     string         `json:"reason,omitempty"`
 	RulesSHA   string         `json:"rules_sha,omitempty"`
 	DurationMs int64          `json:"duration_ms,omitempty"`
 	Agent      *AgentTrace    `json:"agent,omitempty"`
+	Run        *RunInfo       `json:"run,omitempty"`
 	Extra      map[string]any `json:"extra,omitempty"`
+}
+
+// RunInfo summarizes an `arbiter run` invocation. Populated only when
+// the eventlog row was emitted by the runner (Path == "run"). Lets
+// `arbiter explain --last -v` show run-specific metadata without
+// reading the per-run JSONL log.
+type RunInfo struct {
+	CLI       string `json:"cli"`
+	Model     string `json:"model,omitempty"`
+	ExitCode  int    `json:"exit_code"`
+	Outcome   string `json:"outcome"`
+	LogPath   string `json:"log_path,omitempty"`
+	InputTok  int    `json:"input_tokens,omitempty"`
+	OutputTok int    `json:"output_tokens,omitempty"`
+	Turns     int    `json:"turns,omitempty"`
 }
 
 // AgentTrace captures the slow-path agent's reasoning for replay.

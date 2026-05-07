@@ -1,29 +1,34 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/godx-team/godx-arbiter/internal/runner"
 )
 
 // DelegateTo runs another agentic CLI non-interactively for a sub-task
 // and returns its output to the caller. Per docs/MULTI_CLI.md "Pattern
 // 1 — delegate_to MCP tool".
 //
-// Each supported CLI has a small adapter (cliCommand) that knows the
-// flags for headless / batch mode. Unknown CLIs error out with a hint.
+// Implementation: this is a thin wrapper around internal/runner.
+// `arbiter run` and `delegate_to` share the same per-CLI flag table
+// (internal/runner/cliflags.go), so per-CLI invocation lives in one
+// place.
 type DelegateTo struct {
-	// runner is injected so tests can stub exec.
-	runner func(ctx context.Context, name string, args []string, stdin string) ([]byte, error)
+	// Run is injected so tests can stub the runner.
+	Run func(ctx context.Context, spec runner.RunSpec) (*runner.RunResult, error)
 }
 
-// NewDelegateTo constructs the tool with the default exec runner.
+// NewDelegateTo constructs the tool with the default runner.
 func NewDelegateTo() *DelegateTo {
-	return &DelegateTo{runner: defaultDelegateRunner}
+	r := runner.New()
+	return &DelegateTo{Run: r.Run}
 }
 
 // Name implements Tool.
@@ -78,50 +83,57 @@ func (d *DelegateTo) Execute(ctx context.Context, raw json.RawMessage) (json.Raw
 	if timeout <= 0 {
 		timeout = 120 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
-	bin, args, stdin, err := cliCommand(in)
+	// delegate_to's contract is a single string of "the CLI's final
+	// output" — the historical behaviour was io.ReadAll on combined
+	// stdout+stderr. Achieve the same by pointing the runner at a
+	// buffer in OutputFinal mode and pulling FinalText out.
+	var sink bytes.Buffer
+	spec := runner.RunSpec{
+		CLI:        runner.CLI(in.CLI),
+		Task:       buildDelegationPrompt(in),
+		Timeout:    timeout,
+		OutputMode: runner.OutputFinal,
+		Quiet:      true,
+		Stdout:     &sink,
+		Stderr:     &sink,
+	}
+
+	result, err := d.Run(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
-	start := time.Now()
-	out, err := d.runner(ctx, bin, args, stdin)
-	if err != nil {
-		return nil, err
+	if result == nil {
+		return nil, errors.New("runner returned no result")
+	}
+
+	// Combine streamed text + raw stdout — for claude the renderer
+	// fills FinalText; for non-claude CLIs the runner already wrote
+	// stdout verbatim into `sink`, so we don't double-up.
+	output := result.FinalText
+	if output == "" {
+		output = sink.String()
 	}
 
 	const maxBytes = 16 * 1024
 	truncated := false
-	if len(out) > maxBytes {
-		out = out[:maxBytes]
+	if len(output) > maxBytes {
+		output = output[:maxBytes]
 		truncated = true
 	}
 	return json.Marshal(delegateOutput{
 		CLI:        in.CLI,
-		Output:     string(out),
+		ExitCode:   result.ExitCode,
+		Output:     output,
 		Truncated:  truncated,
-		DurationMs: time.Since(start).Milliseconds(),
+		DurationMs: result.DurationMs,
 	})
 }
 
-// cliCommand returns (bin, args, stdin) for the requested CLI.
-func cliCommand(in delegateInput) (string, []string, string, error) {
-	prompt := buildDelegationPrompt(in)
-	switch in.CLI {
-	case "claude":
-		// Claude Code's headless flag prints final assistant text.
-		return "claude", []string{"--print"}, prompt, nil
-	case "codex":
-		return "codex", []string{"--print"}, prompt, nil
-	case "gemini":
-		return "gemini", []string{"-p"}, prompt, nil
-	case "antigravity":
-		return "antigravity", []string{"run"}, prompt, nil
-	}
-	return "", nil, "", fmt.Errorf("unsupported CLI: %s", in.CLI)
-}
-
+// buildDelegationPrompt mirrors the formatting delegate_to has shipped
+// since step 14 of the ROADMAP. Kept here (not in runner.cliflags)
+// because it includes delegate-specific framing — context block,
+// budget hint — that arbiter run wouldn't add.
 func buildDelegationPrompt(in delegateInput) string {
 	var b strings.Builder
 	b.WriteString("godx-arbiter delegated task — operate autonomously, return your final result as the last message.\n\n")
@@ -138,12 +150,4 @@ func buildDelegationPrompt(in delegateInput) string {
 	b.WriteString(in.Task)
 	b.WriteString("\n")
 	return b.String()
-}
-
-func defaultDelegateRunner(ctx context.Context, name string, args []string, stdin string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	if stdin != "" {
-		cmd.Stdin = strings.NewReader(stdin)
-	}
-	return cmd.CombinedOutput()
 }

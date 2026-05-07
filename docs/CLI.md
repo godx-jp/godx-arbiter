@@ -23,6 +23,7 @@ Commands:
 | [`usage`](#arbiter-usage) | Token + cost summary from the usage ledger |
 | [`logs`](#arbiter-logs) | Tail or filter the decision eventlog |
 | [`explain`](#arbiter-explain) | Replay a past decision with full agent rationale |
+| [`run`](#arbiter-run) | Auto-orchestrate one Claude Code (or codex/gemini) task headlessly |
 | [`version`](#arbiter-version) | Print version |
 | `help`, `--help`, `-h` | This message |
 
@@ -385,3 +386,98 @@ arbiter version
 
 Prints `godx-arbiter <semver-or-commit-sha>`. The version is baked at
 build time via `-ldflags "-X main.version=..."`.
+
+---
+
+## `arbiter run`
+
+```
+arbiter run [flags] -- "<task prompt>"
+arbiter run [flags] --task-file PATH
+arbiter run [flags] --task-stdin
+arbiter run --list [-n N] [--json]
+arbiter run --resume-last
+```
+
+Spawns a Claude Code (or codex / gemini / antigravity) session
+headlessly for one task, streams the agent's work back to your
+terminal in real time, exits with a documented status code.
+
+The full design rationale + safety model + recipes lives in
+[RUN.md](RUN.md). Quick reference here.
+
+### Core flags
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--cli claude\|codex\|gemini\|antigravity` | `claude` | Pick the delegate CLI. |
+| `--cwd PATH` | `$PWD` | Working directory pinned for the child. |
+| `--timeout DURATION` | `30m` | Hard wall-clock cap. |
+| `--output stream\|final\|json` | `stream` | How to render events. |
+| `--log-file PATH` | `~/.config/godx-arbiter/runs/<id>.jsonl` | Per-run JSONL log. |
+| `--id NAME` | auto | Run-id; reused as session_id in eventlog. |
+| `--quiet` | false | Suppress live render (final summary still prints). |
+| `--notify-on-done` | false | Trigger configured notify channels on finish. |
+| `--task-file PATH` | — | Read prompt from a file. |
+| `--task-stdin` | — | Read prompt from stdin. |
+
+### Fidelity flags (passthrough to Claude Code)
+
+These bridge the "claude --print is shallow" gap by giving you full
+access to the interactive Claude Code surface.
+
+| Flag | Maps to |
+|---|---|
+| `--resume ID` | `claude --resume <ID>` |
+| `--continue` | `claude --continue` (resume most recent session) |
+| `--allowed-tools LIST` | `--allowedTools` |
+| `--denied-tools LIST` | `--disallowedTools` |
+| `--permission-mode default\|plan\|acceptEdits` | `--permission-mode` |
+| `--mcp-config FILE` | `--mcp-config` |
+| `--add-dirs DIR,DIR` | `--add-dir` (repeatable) |
+| `--model NAME` | `--model` |
+
+### Safety flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--unsafe-skip-permissions` | false | Triple-gated: requires `GODX_ARBITER_ALLOW_UNSAFE=1` env, prints a red banner, eventlog records `decision: "unsafe-spawn"`. |
+| `--no-arbiter-hooks` | false | Sets `GODX_ARBITER_DISABLED=1` in child env. Dev iteration only; refused when `ARBITER_RUN_DEPTH > 2`. |
+| `--inherit-env` | false | Pass the caller's full env instead of the curated allowlist. |
+| `--force-resume` | false | Override the cwd-mismatch refusal on `--resume <id>`. |
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Task completed (`message_stop` + final assistant text). |
+| 1 | Child process exited non-zero. |
+| 2 | Argument / config error. |
+| 124 | Timeout (matches `timeout(1)` convention). |
+| 130 | User-interrupted (Ctrl-C → SIGTERM → 5s grace → SIGKILL). |
+
+### Examples
+
+```bash
+# Simplest — fire and watch.
+arbiter run -- "summarize the last week of git activity"
+
+# Long-running, notify when done, restrict tools.
+arbiter run --timeout 1h --notify-on-done \
+    --allowed-tools Read,Glob,Grep,Edit \
+    -- "Refactor internal/auth/ to use OS keychain everywhere"
+
+# Resume a previous session.
+arbiter run --list -n 5
+arbiter run --resume run-20260507-103000-7c -- "now finish the test cases"
+
+# Cross-CLI for codegen.
+arbiter run --cli codex --output final --timeout 10m \
+    -- "Implement the migration script described in plan.md"
+
+# Inspect raw stream-json.
+arbiter run --output json --quiet -- "say hi" | jq '.type'
+```
+
+See [RUN.md](RUN.md) for the full safety model, recipes, and the
+fidelity tier comparison.

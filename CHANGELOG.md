@@ -5,6 +5,40 @@ All notable changes are documented here. Format follows
 follow [SemVer](https://semver.org/spec/v2.0.0.html). Until 1.0.0,
 minor versions may break.
 
+## Unreleased
+
+### Added — `arbiter run` autonomous task driver
+
+- New top-level `arbiter run` subcommand. Spawns Claude Code (or
+  codex / gemini / antigravity) headlessly for one task, streams the
+  agent's work back to the user's terminal in real time, exits with a
+  documented status code (0/1/2/124/130).
+- Transport: `claude --print --output-format stream-json` rather than
+  tmux + `send-keys`. The `message_stop` event is the deterministic
+  completion signal — see docs/RUN.md for the full rationale.
+- Fidelity passthrough flags (`--resume`, `--continue`,
+  `--allowed-tools`, `--denied-tools`, `--permission-mode`,
+  `--mcp-config`, `--add-dirs`, `--model`) bridge the gap to
+  interactive Claude Code: hooks, MCP servers, CLAUDE.md, skills,
+  auth all flow through.
+- Safety: triple-gated `--unsafe-skip-permissions` (env +
+  banner + eventlog), curated child env allowlist, PATH-hijack guard,
+  process-group teardown with 5s grace SIGTERM → SIGKILL, recursion
+  fuse via `ARBITER_RUN_DEPTH`.
+- Persistence: per-run JSONL log at
+  `~/.config/godx-arbiter/runs/<id>.jsonl`, append-only `index.jsonl`
+  for `arbiter run --list`, eventlog rows with `Path: "run"`.
+- Implementation: new `internal/runner` package
+  (runner/spec/streamjson/render/cliflags/index). `delegate_to` MCP
+  tool refactored to share the same engine — single source of truth
+  for per-CLI flag tables.
+- Docs: new `docs/RUN.md` (design + risks + recipes + fidelity tiers),
+  `docs/CLI.md` `arbiter run` section, cross-links from `MULTI_CLI.md`
+  and `AGENT.md`.
+- Tests: 13 unit tests in `internal/runner/`, 6 integration tests
+  driving the binary against a fake-claude shell script in
+  `internal/runner/testdata/bin/`.
+
 ## 0.1.0 — 2026-05-06
 
 The first end-to-end alpha. Closes the original 14-step ROADMAP plus

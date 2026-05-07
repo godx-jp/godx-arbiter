@@ -96,6 +96,7 @@ distribution scaffolding). See [docs/ROADMAP.md](docs/ROADMAP.md).
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full system design, components, data flow |
 | [docs/DECISION_FLOW.md](docs/DECISION_FLOW.md) | The decide loop: fast-path, agent, escalation, timeout |
 | [docs/AGENT.md](docs/AGENT.md) | Slow-path internals — Anthropic SDK, tool loop, decision parser |
+| [docs/RUN.md](docs/RUN.md) | `arbiter run` — autonomous task driver (Claude Code orchestration) |
 | [docs/EVENTLOG.md](docs/EVENTLOG.md) | Eventlog schema + `arbiter logs` / `jq` recipes |
 
 **Multi-CLI**

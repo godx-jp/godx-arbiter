@@ -70,6 +70,8 @@ func main() {
 		runUninstall(args)
 	case "logs":
 		runLogs(args)
+	case "run":
+		runRun(args)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
 		printUsage(os.Stderr)
@@ -100,6 +102,25 @@ Project setup:
                         Flags: --dir PATH, --template balanced|strict|sandbox,
                                --non-interactive, --force, --skip-hooks, --skip-mcp
   uninstall [--dry-run] Remove arbiter hook + MCP entries from ~/.claude/settings.json
+
+Orchestration:
+  run [flags] -- "<task>"   Auto-run a Claude Code (or codex/gemini/antigravity)
+                            session headlessly for one task. Streams stream-json
+                            events live; logs to ~/.config/godx-arbiter/runs/.
+                            Common flags:
+                              --cli claude|codex|gemini|antigravity (default claude)
+                              --output stream|final|json
+                              --resume ID    | --continue
+                              --allowed-tools / --denied-tools (CSV)
+                              --permission-mode default|plan|acceptEdits
+                              --mcp-config FILE   --add-dirs DIR,DIR
+                              --model NAME        --timeout 30m
+                              --quiet             --notify-on-done
+                              --unsafe-skip-permissions  (gated)
+                              --no-arbiter-hooks         (dev only)
+                            Subforms:
+                              run --list [-n N] [--json]    list past runs
+                              run --resume-last             resume the most recent
 
 Diagnostics:
   doctor                Diagnose install, env, project config

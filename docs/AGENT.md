@@ -222,3 +222,20 @@ for the patterns:
 For full-stack tests against a live model, set
 `ANTHROPIC_API_KEY` and run a hook against a project — the agent
 trace lands in the eventlog (`arbiter explain --last -v`).
+
+## Slow-path agent vs `arbiter run`
+
+Two distinct invocation paths share the same gating fabric:
+
+| | Slow-path agent | `arbiter run` |
+|---|---|---|
+| When it fires | Fast-path policy returns `OutcomeAgent` | User invokes the subcommand |
+| What it spawns | Anthropic API directly via `anthropic-sdk-go` | The `claude` CLI via `--print --output-format stream-json` |
+| Tools | `internal/tools.DefaultRegistry()` | Whatever Claude Code itself loads (settings.json, CLAUDE.md) |
+| Hooks on tool use | Claude Code's hooks fire (i.e. arbiter gates itself) | Same — recursion fuse caps depth |
+| Output | Internal — feeds the hook decision JSON | User-facing — streamed to terminal |
+
+Both use the same eventlog with `Path: "slow-path"` vs `Path: "run"`
+respectively. `arbiter explain --last -v` works on either.
+
+See [RUN.md](RUN.md) for the run-mode specifics.

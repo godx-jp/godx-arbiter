@@ -191,6 +191,11 @@ viable. Two patterns:
 
 ### Pattern 1 — `delegate_to` MCP tool
 
+> See also: [docs/RUN.md](RUN.md) for `arbiter run`, the human-facing
+> top-level command equivalent. Both share `internal/runner` for
+> per-CLI invocation flags so a flag added to one lights up in the
+> other.
+
 A running session can call the arbiter MCP tool `delegate_to` to spawn
 another CLI for a sub-task:
 

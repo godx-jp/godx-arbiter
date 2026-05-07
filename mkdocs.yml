@@ -60,6 +60,8 @@ nav:
       - Decision flow: DECISION_FLOW.md
       - Slow-path agent: AGENT.md
       - Eventlog: EVENTLOG.md
+  - Orchestration:
+      - arbiter run: RUN.md
   - Multi-CLI:
       - Adapters + proxy: MULTI_CLI.md
       - Model routing: MODEL_ROUTING.md
