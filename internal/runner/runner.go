@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/godx-team/godx-arbiter/internal/eventlog"
@@ -450,17 +449,4 @@ func atoiOr(s string, def int) int {
 	return n
 }
 
-// killGroup sends SIGTERM to the child's process group, then SIGKILL
-// after the WaitDelay. The cancel hook plus WaitDelay together give
-// us the documented 5s grace window.
-func killGroup(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
-	}
-	pgid, err := syscall.Getpgid(cmd.Process.Pid)
-	if err != nil {
-		// Fall back to per-process kill if we can't see the pgid.
-		return cmd.Process.Signal(syscall.SIGTERM)
-	}
-	return syscall.Kill(-pgid, syscall.SIGTERM)
-}
+// killGroup is provided per-platform in sysproc_{unix,windows}.go.
