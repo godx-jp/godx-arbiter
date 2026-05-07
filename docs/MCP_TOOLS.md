@@ -202,8 +202,8 @@ Returns:
 
 ## MCP transport
 
-`arbiter mcp` runs a stdio MCP server. Register in
-`~/.claude/settings.json`:
+`arbiter mcp` runs a stdio MCP server speaking JSON-RPC 2.0. Register
+in `~/.claude/settings.json`:
 
 ```json
 {
@@ -218,6 +218,153 @@ Returns:
 
 Now Claude can invoke `mcp__godx-arbiter__analyze_risk` etc. in any
 session.
+
+### Wire format
+
+One JSON object per line on stdin/stdout. Each request is matched to a
+response by `id`. Notifications (no `id`) get no response.
+
+We implement the load-bearing subset of the MCP spec:
+
+| Method | Direction | Purpose |
+|---|---|---|
+| `initialize` | client → server | Capability handshake; returns `protocolVersion: 2024-11-05` and `serverInfo` |
+| `notifications/initialized` | client → server | Sent after init; arbiter is a no-op recipient |
+| `tools/list` | client → server | List available tools with input schemas |
+| `tools/call` | client → server | Invoke a tool with arguments |
+| `ping` | client → server | Liveness check |
+
+Anything else returns `-32601 method not found`. Resources, prompts,
+sampling, roots, and the full server-info dance are out of scope —
+they're not load-bearing for tool use, and the calling clients
+(Claude Code, MCP Inspector) gracefully degrade when capabilities are
+missing.
+
+### Initialize handshake
+
+```jsonl
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+```
+
+Response:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "2024-11-05",
+    "serverInfo": {"name": "godx-arbiter", "version": "0.1.0"},
+    "capabilities": {"tools": {}}
+  }
+}
+```
+
+### Listing tools
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+```
+
+Response (excerpt):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "tools": [
+      {
+        "name": "analyze_risk",
+        "description": "Estimate risk of a proposed tool call. Returns score (0..1), category, ...",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tool":  {"type": "string"},
+            "input": {"type": "object"},
+            "cwd":   {"type": "string"}
+          },
+          "required": ["tool"]
+        }
+      },
+      ...
+    ]
+  }
+}
+```
+
+### Calling a tool
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "analyze_risk",
+    "arguments": {
+      "tool": "Bash",
+      "input": {"command": "rm -rf node_modules"},
+      "cwd": "/home/u/famgia/admin"
+    }
+  }
+}
+```
+
+Success response (the result is wrapped in a `content` array per the
+MCP spec; our tool output is one `text` block carrying the JSON
+output):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"score\":0.3,\"category\":\"destructive-reversible\",\"concerns\":[\"destructive but path is regenerable\"],\"reversibility\":\"easy\",\"blast_radius\":\"single-directory\"}"
+      }
+    ]
+  }
+}
+```
+
+### Tool errors
+
+Tool errors don't surface as JSON-RPC errors — that would terminate
+the model's reasoning. Instead the result includes `isError: true`
+and a `text` block with the error message, so the model can react and
+retry:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [{"type": "text", "text": "open /no/such/file: no such file or directory"}],
+    "isError": true
+  }
+}
+```
+
+JSON-RPC errors (`-32xxx`) are reserved for transport-level problems
+(parse error, unknown method, malformed params).
+
+### Trying it locally
+
+```bash
+# pipe a session in
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | arbiter mcp
+
+# use the official MCP Inspector for richer interaction
+npx @modelcontextprotocol/inspector arbiter mcp
+```
 
 ## Tool design principles
 
@@ -249,9 +396,39 @@ session.
    server with no further wiring.
 4. Add docs entry to this file.
 
+## Implementation notes
+
+### Output cap
+
+Every tool's output is bounded:
+
+- `read_file` → 8 KiB by default (`max_bytes` argument tunes it)
+- `delegate_to` → 16 KiB; truncated output sets `truncated: true`
+- `lookup_history` → caller-provided `limit` (default 5)
+- `analyze_risk`, `check_rule`, `get_project_meta`, `list_recent_actions` → bounded by their natural shape
+
+Over-cap is a guardrail — we don't want a single tool call to pull a
+50 MB log into the agent's context.
+
+### Determinism
+
+`analyze_risk`, `check_rule`, `read_file`, `get_project_meta` are
+deterministic given the same inputs (and same on-disk state). The
+others depend on external state (eventlog for history, OS notify
+channels for escalation, subprocess output for delegate_to).
+
+### Concurrency
+
+The registry is concurrent-safe via an internal `sync.RWMutex`.
+Tools are stateless (no in-tool state across `Execute` calls), so
+concurrent invocations are safe. The MCP server processes requests
+serially per stdio connection — Claude Code rarely pipelines anyway.
+
 ## Future tools (not yet planned in detail)
 
 - `dry_run` — simulate the proposed tool call in a sandbox and report
   effects
 - `diff_preview` — for Edit/Write, show diff and ask agent to assess
 - `notify_team` — send broadcast for team-wide changes
+- `git_blame` — surface who last touched the file the agent's about to edit
+- `file_history` — recent commits touching a path

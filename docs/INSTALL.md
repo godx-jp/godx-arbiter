@@ -47,9 +47,15 @@ curl -L https://github.com/<org>/godx-arbiter/releases/download/vX.Y.Z/arbiter-l
 
 ```bash
 arbiter --version       # confirm install
+arbiter auth set anthropic  # store API key in OS keychain
 arbiter init            # set up hooks + project rules
 arbiter doctor          # check everything is wired up
+arbiter doctor --notify-test   # confirm notification channels reach you
 ```
+
+For the full subcommand reference (auth, uninstall, logs, proxy, mcp,
+explain, …) see [CLI.md](CLI.md). For configuration files (global +
+per-project + env vars), see [CONFIG.md](CONFIG.md).
 
 ### `arbiter init`
 

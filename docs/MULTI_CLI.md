@@ -227,16 +227,53 @@ The arbiter reads task intent from the first user message + tool-call
 patterns, classifies, and routes. The user's CLI sees a coherent reply;
 underneath, work happened on a different model/CLI.
 
+## Streaming + tool gating in proxy mode
+
+The proxy gates tool calls in **both** streaming and non-streaming
+responses. For Anthropic and OpenAI, we parse the SSE chunk stream
+directly and rewrite tool_use events when the policy denies them.
+Gemini's streaming format aggregates function calls server-side;
+non-streaming gating already covers the common case there.
+
+| Provider | Non-streaming | Streaming (`text/event-stream`) |
+|---|---|---|
+| Anthropic | ✅ rewrites `tool_use` → text refusal block | ✅ buffers `input_json_delta`, rewrites on deny |
+| OpenAI | ✅ rewrites `tool_calls[*].function.arguments` | ✅ buffers argument deltas, rewrites on deny |
+| Gemini | ✅ via `functionCall` parts | ⚠ passthrough (function calls aren't chunk-streamed in practice) |
+
+When a deny rewrite happens, response headers gain
+`X-Arbiter-Refused: <tool>` so calling tooling can detect it without
+parsing the body.
+
+See `internal/proxy/sse.go` (Anthropic), `internal/proxy/sse_openai.go`
+(OpenAI), and `internal/proxy/wire.go` (non-streaming + token
+accounting) for the implementations.
+
+## Capability snapshot vs implementation
+
+The matrix above tracks what each CLI's surface theoretically supports;
+the table below tracks what arbiter actually wires today:
+
+| Adapter | Status | Notes |
+|---|---|---|
+| `internal/adapter/claudecode` | ✅ full reference | All hook events (PreTool / PostTool / Notification / Stop / UserPrompt) + MCP + proxy |
+| `internal/adapter/codex` | ✅ thin | Generic event parser; uses Claude-Code-shaped output |
+| `internal/adapter/gemini` | ✅ thin | Generic event parser; outputs Gemini's `{decision: allow|block|ask}` shape |
+| `internal/adapter/antigravity` | ✅ thin | Best-effort, expected to evolve as the CLI's API stabilizes |
+
+Adapters are pluggable — see [CONTRIBUTING.md](../CONTRIBUTING.md#adding-a-new-cli-adapter).
+
 ## Open questions
 
 - Antigravity API surface: still flux. Adapter is best-effort until
   stabilized.
-- Streaming responses through proxy: need careful buffering to do
-  decision-time tool gating without breaking SSE.
 - Auth: holding multiple provider API keys in arbiter is sensitive —
-  prefer OS keychain integration (`go-keyring`).
+  arbiter uses OS keychain integration (`go-keyring`) by default. See
+  [CONFIG.md](CONFIG.md#environment-variables) and
+  [`arbiter auth`](CLI.md#arbiter-auth).
 - Proxy port collision with other local LLM tools (Ollama on 11434,
-  LM Studio, etc.): default to 7777, configurable.
+  LM Studio, etc.): default to 7777, configurable via
+  `arbiter proxy --addr` or `proxy.addr` in `config.yaml`.
 
 See [MODEL_ROUTING.md](MODEL_ROUTING.md) for the routing rules and token
 optimization strategy.

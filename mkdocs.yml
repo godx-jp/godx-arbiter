@@ -46,16 +46,25 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Architecture: ARCHITECTURE.md
-  - Decision flow: DECISION_FLOW.md
+  - Get started:
+      - Install: INSTALL.md
+      - CLI reference: CLI.md
+      - Troubleshooting: TROUBLESHOOTING.md
   - Configuration:
+      - All config files: CONFIG.md
       - rules.md spec: RULES_SPEC.md
       - policy.yaml spec: POLICY_SPEC.md
+      - Skills: SKILLS.md
+  - How it works:
+      - Architecture: ARCHITECTURE.md
+      - Decision flow: DECISION_FLOW.md
+      - Slow-path agent: AGENT.md
+      - Eventlog: EVENTLOG.md
   - Multi-CLI:
       - Adapters + proxy: MULTI_CLI.md
       - Model routing: MODEL_ROUTING.md
   - Integrations:
       - MCP tools: MCP_TOOLS.md
-  - Install: INSTALL.md
-  - Roadmap: ROADMAP.md
-  - Decisions log: DECISIONS.md
+  - Project:
+      - Roadmap: ROADMAP.md
+      - Decisions log: DECISIONS.md

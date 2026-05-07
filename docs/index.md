@@ -25,13 +25,36 @@ Then run any tool call with Claude Code; arbiter sits in front.
 
 ## Where to go next
 
-- [Architecture](ARCHITECTURE.md) — system overview, the four layers, and how data flows.
-- [Decision flow](DECISION_FLOW.md) — the decide loop step-by-step.
-- [rules.md spec](RULES_SPEC.md) — how to write per-project rules.
-- [policy.yaml spec](POLICY_SPEC.md) — fast-path regex rules.
-- [Multi-CLI](MULTI_CLI.md) — adapters, proxy mode, capability matrix.
-- [Model routing](MODEL_ROUTING.md) — task-aware routing + budget control.
-- [MCP tools](MCP_TOOLS.md) — what the agent can call mid-decision.
+**Get started**
+
 - [Install](INSTALL.md) — npm, curl, manual.
+- [CLI reference](CLI.md) — every subcommand and flag.
+- [Troubleshooting](TROUBLESHOOTING.md) — common issues and fixes.
+
+**Configure**
+
+- [All config files](CONFIG.md) — global, per-project, environment.
+- [rules.md spec](RULES_SPEC.md) — per-project Markdown rules.
+- [policy.yaml spec](POLICY_SPEC.md) — regex fast-path.
+- [Skills system](SKILLS.md) — reusable prompt fragments.
+
+**Understand**
+
+- [Architecture](ARCHITECTURE.md) — system overview, the four layers.
+- [Decision flow](DECISION_FLOW.md) — the decide loop step-by-step.
+- [Slow-path agent](AGENT.md) — Anthropic SDK + tool loop internals.
+- [Eventlog](EVENTLOG.md) — schema for `events.jsonl` + querying.
+
+**Multi-CLI**
+
+- [Adapters + proxy](MULTI_CLI.md) — Mode A vs Mode B + capability matrix.
+- [Model routing](MODEL_ROUTING.md) — task-aware routing + budget.
+- [MCP tools](MCP_TOOLS.md) — what the agent can call mid-decision.
+
+**Project**
+
 - [Roadmap](ROADMAP.md) — what's shipped, what's next.
 - [Decisions log](DECISIONS.md) — ADRs.
+- [Contributing](https://github.com/godx-team/godx-arbiter/blob/main/CONTRIBUTING.md)
+- [Security](https://github.com/godx-team/godx-arbiter/blob/main/SECURITY.md)
+- [Changelog](https://github.com/godx-team/godx-arbiter/blob/main/CHANGELOG.md)

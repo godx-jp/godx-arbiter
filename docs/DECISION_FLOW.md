@@ -286,3 +286,134 @@ availability — failing closed would block all work if arbiter has a bug.
 
 (This is configurable: set `on_error: deny` in rules.md if you prefer
 fail-closed semantics.)
+
+## End-to-end traces
+
+### Trace 1 — fast-path deny
+
+```
+$ echo '{"session_id":"abc","cwd":"/home/u/proj","hook_event_name":"PreToolUse",
+        "tool_name":"Bash","tool_input":{"command":"rm -rf /etc/foo"}}' \
+   | arbiter hook pretool
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "rm -rf of system-critical root directory"
+  },
+  "metadata": {
+    "duration_ms": 0,
+    "has_policy": true,
+    "matched_pattern": "\\brm\\s+-rf\\s+/(etc|usr|var|...)\\b",
+    "path": "fast-path",
+    "rule_index": 0,
+    "rule_type": "deny",
+    "session_id": "abc",
+    "tool": "Bash"
+  }
+}
+```
+
+Cost: $0 (no LLM call). Latency: < 1ms.
+
+### Trace 2 — slow-path approve
+
+```
+$ echo '{"session_id":"def","cwd":"/home/u/proj","hook_event_name":"PreToolUse",
+        "tool_name":"Edit","tool_input":{"file_path":"main.go","old_string":"x","new_string":"y"}}' \
+   | arbiter hook pretool
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "allow"
+  },
+  "metadata": {
+    "agent_iters": 2,
+    "agent_outcome": "approve",
+    "duration_ms": 7298,
+    "path": "slow-path",
+    "rule_type": "default",
+    ...
+  }
+}
+
+$ arbiter explain --last -v
+Event 18ad…
+  agent:
+    model: claude-haiku-4-5-20251001
+    iters: 2
+    tokens: in=4832 out=535
+    tool[0]: read_file       — open main.go: ...
+    tool[1]: analyze_risk    → score 0.2, file-edit
+    tool[2]: get_project_meta → has_arbiter: true
+    final: ...ARBITER_DECISION: approve
+```
+
+Cost: ~$0.005 (Haiku). Latency: ~7s.
+
+### Trace 3 — slow-path → ask → escalation timeout → deny
+
+```json
+{
+  "hookSpecificOutput": {
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "escalation timed out: Force push to staging will rewrite shared history; should this be approved?"
+  },
+  "metadata": {
+    "agent_iters": 3,
+    "agent_outcome": "ask",
+    "escalation": "timeout",
+    "fallback": "deny",
+    "path": "slow-path",
+    ...
+  }
+}
+```
+
+Sequence:
+
+1. Tool didn't match `policy.yaml` deny/allow → slow-path.
+2. Agent reasoned, called tools, decided **ask** (the rules.md's
+   "Escalate" section listed force-push).
+3. `escalate_to_user` ran the configured channels:
+   - `desktop` → fired but no reply mechanism.
+   - `telegram` → not configured (env vars unset).
+4. Escalation deadline (`escalation_timeout_seconds`, default 60s) hit
+   → `Reply{Timeout:true}`.
+5. Fallback per rules.md `on_timeout: deny` → final outcome **deny**.
+
+The agent's question text is preserved in
+`permissionDecisionReason`, so the calling agent (Claude Code) sees
+exactly why we said no.
+
+## Streaming via the proxy
+
+Hook mode operates on whole tool calls. **Proxy mode** also operates
+on streaming tool calls:
+
+```
+upstream SSE
+  ↓
+event: content_block_start (type=tool_use, id=u1, name=Bash)
+event: content_block_delta (input_json_delta partial="...")
+event: content_block_delta (input_json_delta partial="...")
+event: content_block_stop
+  ↓
+arbiter assembles input → policy.Eval → deny?
+  ↓ if deny
+   rewrite the events as a single text block:
+     content_block_start (type=text)
+     content_block_delta (text="tool refused by godx-arbiter: <reason>")
+     content_block_stop
+  ↓
+client sees a refusal block, can recover with the next user turn.
+```
+
+Same pattern for OpenAI's `tool_calls.function.arguments` chunks; the
+arguments JSON is rewritten to
+`{"arbiter_refused":true,"reason":"..."}` so the calling agent's
+function-call handler still resolves the call.
+
+See [`internal/proxy/sse.go`](https://github.com/godx-team/godx-arbiter/blob/main/internal/proxy/sse.go)
+and [`internal/proxy/sse_openai.go`](https://github.com/godx-team/godx-arbiter/blob/main/internal/proxy/sse_openai.go)
+for the wire-level details.

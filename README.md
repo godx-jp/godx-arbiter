@@ -72,27 +72,60 @@ distribution scaffolding). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Documentation
 
+**Get started**
+
+| Doc | Purpose |
+|---|---|
+| [docs/INSTALL.md](docs/INSTALL.md) | Install paths: npm, curl, manual binary |
+| [docs/CLI.md](docs/CLI.md) | Authoritative reference for every `arbiter` subcommand |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common issues and their fixes |
+
+**Configure**
+
+| Doc | Purpose |
+|---|---|
+| [docs/CONFIG.md](docs/CONFIG.md) | All configuration: global config, env vars, settings.json |
+| [docs/RULES_SPEC.md](docs/RULES_SPEC.md) | Spec for project-level `.arbiter/rules.md` |
+| [docs/POLICY_SPEC.md](docs/POLICY_SPEC.md) | Spec for fast-path `.arbiter/policy.yaml` |
+| [docs/SKILLS.md](docs/SKILLS.md) | Skills system + built-in library |
+
+**Understand**
+
 | Doc | Purpose |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full system design, components, data flow |
 | [docs/DECISION_FLOW.md](docs/DECISION_FLOW.md) | The decide loop: fast-path, agent, escalation, timeout |
+| [docs/AGENT.md](docs/AGENT.md) | Slow-path internals — Anthropic SDK, tool loop, decision parser |
+| [docs/EVENTLOG.md](docs/EVENTLOG.md) | Eventlog schema + `arbiter logs` / `jq` recipes |
+
+**Multi-CLI**
+
+| Doc | Purpose |
+|---|---|
 | [docs/MULTI_CLI.md](docs/MULTI_CLI.md) | Adapters + LLM proxy mode for non-Claude CLIs |
 | [docs/MODEL_ROUTING.md](docs/MODEL_ROUTING.md) | Task-aware model routing + token / cost optimization |
-| [docs/RULES_SPEC.md](docs/RULES_SPEC.md) | Spec for project-level `.arbiter/rules.md` |
-| [docs/POLICY_SPEC.md](docs/POLICY_SPEC.md) | Spec for fast-path `.arbiter/policy.yaml` |
-| [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) | Catalog of decision-support tools (used internally + exposed via MCP) |
-| [docs/INSTALL.md](docs/INSTALL.md) | Install paths: npm, curl, manual binary |
+| [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) | Catalog of decision-support tools |
+
+**Project**
+
+| Doc | Purpose |
+|---|---|
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Multi-step build plan, milestones, open questions |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | ADR-style log of design decisions |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development workflow + how to add tools/channels/adapters |
+| [SECURITY.md](SECURITY.md) | Threat model + vulnerability reporting |
+| [CHANGELOG.md](CHANGELOG.md) | Version history |
 
-## Quick install (target — not yet shipped)
+## Quick install
 
 ```bash
 npm i -g godx-arbiter         # or: curl -sSL https://godx-arbiter.dev/install.sh | bash
+arbiter auth set anthropic    # store API key in OS keychain
 arbiter init                  # writes ~/.claude/settings.json hooks + .arbiter/rules.md template
-arbiter doctor                # verifies hooks, binary, ANTHROPIC_API_KEY, Telegram (optional)
+arbiter doctor                # verifies hooks, binary, API key
+arbiter doctor --notify-test  # confirm Telegram / desktop / webhook reach you
 ```
 
 ## License
 
-TBD.
+MIT (see [LICENSE](LICENSE)).

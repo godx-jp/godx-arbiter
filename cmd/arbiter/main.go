@@ -80,25 +80,85 @@ func main() {
 func printUsage(w *os.File) {
 	fmt.Fprint(w, `godx-arbiter — LLM-based decision arbiter for AI coding CLIs
 
-Usage: arbiter <command> [args...]
+  Reads per-project rules in Markdown, intercepts tool calls (via hooks
+  or LLM proxy), and decides approve / deny / ask on the agent's behalf.
 
-Commands:
-  hook <pretool|notification|stop|posttool>
-                        Hook entrypoint, reads JSON on stdin, writes
-                        decision JSON on stdout.
-  init                  Set up hooks in ~/.claude/settings.json and
-                        scaffold .arbiter/ in cwd.
-  doctor                Diagnose install + config.
-  mcp                   Run MCP stdio server (decision-support tools).
-  proxy                 Run local LLM proxy for non-Claude CLIs.
-  usage                 Token + cost report.
-  explain <session-id>  Replay past decisions with full rationale.
-  auth <set|get|list|delete> <provider>
-                        Manage provider API keys (stored in OS keychain).
-  uninstall             Remove arbiter hooks/MCP from ~/.claude/settings.json.
-  logs                  Tail or filter the decision eventlog.
-  version               Print version.
-  help                  This message.
+Usage:
+  arbiter <command> [flags] [args...]
+  arbiter <command> --help     show command-specific help
+
+Hook lifecycle (called by Claude Code via ~/.claude/settings.json):
+  hook pretool          PreToolUse — gate the tool call (in: JSON, out: decision JSON)
+  hook posttool         PostToolUse — log outcome to eventlog
+  hook notification     Notification — dispatch a notification
+  hook stop             Stop — record session end
+
+Project setup:
+  init [flags]          Scaffold .arbiter/ + register hooks/MCP in ~/.claude/settings.json
+                        Flags: --dir PATH, --template balanced|strict|sandbox,
+                               --force, --skip-hooks, --skip-mcp
+  uninstall [--dry-run] Remove arbiter hook + MCP entries from ~/.claude/settings.json
+
+Diagnostics:
+  doctor                Diagnose install, env, project config
+                        Flags: --notify-test  send a live ping to every channel
+                               --json         machine-readable schema
+  logs [flags]          Tail or filter the decision eventlog
+                        Flags: --tail, -n N, --session ID, --tool NAME,
+                               --decision allow|deny, --since RFC3339, --json
+  explain [flags] [args] Replay a past decision with full rationale
+                        Forms:  arbiter explain <session-id> [event-id]
+                                arbiter explain --last
+                        Flags:  -v   include agent tool transcript
+  usage [flags]         Per-session token + cost summary
+                        Flags: --today, --since RFC3339
+
+Servers:
+  mcp                   Stdio MCP server exposing decision-support tools
+                        Register in settings.json:
+                          {"mcpServers":{"godx-arbiter":{"command":"arbiter","args":["mcp"]}}}
+  proxy [flags]         Local LLM proxy on :7777 (Anthropic/OpenAI/Gemini)
+                        Flags: --addr HOST:PORT, --cli LABEL
+
+Credentials (OS keychain via go-keyring):
+  auth set <provider> [<value>]    Store API key (provider: anthropic|openai|google|telegram)
+  auth get <provider>              Print stored key to stdout
+  auth list                        Show provider → status table
+  auth delete <provider>           Remove credential
+
+Other:
+  version, --version, -v   Print version
+  help, --help, -h         This message
+
+Environment:
+  ANTHROPIC_API_KEY        Slow-path agent's API key (or use 'arbiter auth set anthropic')
+  GODX_ARBITER_HOME        Override per-user data root (default ~/.config/godx-arbiter)
+  GODX_ARBITER_DISABLED=1  Kill switch — every decision short-circuits to allow
+  GODX_ARBITER_LOG_LEVEL   debug | info | warn | error (default info)
+
+See https://github.com/godx-team/godx-arbiter for full docs and ADRs.
+`)
+}
+
+// printHookUsage is shown when 'arbiter hook' is invoked without a sub.
+func printHookUsage(w *os.File) {
+	fmt.Fprint(w, `arbiter hook <subcommand>
+
+Reads a JSON event on stdin, writes a decision (or no-op for non-decision
+events) on stdout. Designed to be a 'command' entry in
+~/.claude/settings.json's "hooks" block.
+
+Subcommands:
+  pretool       PreToolUse — the gating decision
+  posttool      PostToolUse — log tool outcome to eventlog
+  notification  Notification — dispatch a notification
+  stop          Stop — session-end notification
+
+The cardinal rule: arbiter must NEVER break a calling session. Internal
+errors are recovered (panic-safe); the decision falls back to the
+rules.md 'on_error' policy (default: approve).
+
+See docs/CLI.md#arbiter-hook for input/output JSON schema.
 `)
 }
 
@@ -106,7 +166,7 @@ Commands:
 // arbiter must never break a calling session — fail-open on errors.
 func runHook(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "hook: subcommand required (pretool|notification|stop|posttool)")
+		printHookUsage(os.Stderr)
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -118,8 +178,11 @@ func runHook(args []string) {
 		hookStop()
 	case "posttool":
 		hookPostTool()
+	case "help", "--help", "-h":
+		printHookUsage(os.Stdout)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown hook: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "unknown hook: %s\n\n", args[0])
+		printHookUsage(os.Stderr)
 		os.Exit(2)
 	}
 }
