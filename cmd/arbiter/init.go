@@ -88,13 +88,9 @@ func runInit(args []string) {
 		filepath.Join(root, projectfind.ConfigDirName))
 }
 
-func scaffoldArbiterDir(root, template string, force bool) error {
-	return scaffoldArbiterDirWithBody(root, template, force, "", "")
-}
-
-// scaffoldArbiterDirWithBody is the wizard-aware variant — when
-// rulesBody / policyBody are non-empty, they're used verbatim
-// instead of the canned template.
+// scaffoldArbiterDirWithBody scaffolds .arbiter/ in root. When
+// rulesBody / policyBody are non-empty (the wizard path), they're used
+// verbatim; otherwise the canned template named by `template` is used.
 func scaffoldArbiterDirWithBody(root, template string, force bool, rulesBody, policyBody string) error {
 	dir := projectfind.ConfigDir(root)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

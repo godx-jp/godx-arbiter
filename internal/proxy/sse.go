@@ -410,26 +410,9 @@ func mustJSON(v any) []byte {
 	return out
 }
 
-// shouldStreamingGate reports whether the proxy should drive an SSE
-// transformer for this response. Anthropic + OpenAI streams are gated
-// when a fast-path policy exists; Gemini's streaming format is
-// passed through (its function-call shape is buffered server-side
-// rather than chunk-streamed, so non-streaming gating already covers
-// the common path).
-func (w *Wiring) shouldStreamingGate(provider, contentType string) bool {
-	if w == nil || w.Policy == nil {
-		return false
-	}
-	if !strings.Contains(contentType, "text/event-stream") {
-		return false
-	}
-	switch provider {
-	case "anthropic", "openai":
-		return true
-	}
-	return false
-}
-
 func init() {
 	streamingProviders["anthropic"] = func(s *streamingTransform) error { return s.runAnthropic() }
+	// keep strings.Contains in scope for the (now retired)
+	// shouldStreamingGate helper; future per-provider toggles will use it.
+	_ = strings.Contains
 }

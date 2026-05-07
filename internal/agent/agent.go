@@ -256,7 +256,7 @@ func splitOutcomeReason(s string) (outcome, reason string) {
 
 func tryParseJSON(text string) (Decision, bool) {
 	t := strings.TrimSpace(text)
-	if !(strings.HasPrefix(t, "{") && strings.HasSuffix(t, "}")) {
+	if !strings.HasPrefix(t, "{") || !strings.HasSuffix(t, "}") {
 		return Decision{}, false
 	}
 	var raw struct {
