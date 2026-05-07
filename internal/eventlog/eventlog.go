@@ -304,6 +304,28 @@ func formatExplain(ev Event, verbose bool) string {
 			}
 		}
 	}
+	if ev.Run != nil {
+		fmt.Fprintln(&b, "  run:")
+		if ev.Run.CLI != "" {
+			fmt.Fprintf(&b, "    cli:      %s\n", ev.Run.CLI)
+		}
+		if ev.Run.Model != "" {
+			fmt.Fprintf(&b, "    model:    %s\n", ev.Run.Model)
+		}
+		fmt.Fprintf(&b, "    outcome:  %s (exit %d)\n", ev.Run.Outcome, ev.Run.ExitCode)
+		if ev.Run.InputTok > 0 || ev.Run.OutputTok > 0 {
+			fmt.Fprintf(&b, "    tokens:   in=%d out=%d\n", ev.Run.InputTok, ev.Run.OutputTok)
+		}
+		if ev.Run.Turns > 0 {
+			fmt.Fprintf(&b, "    turns:    %d\n", ev.Run.Turns)
+		}
+		if ev.Run.LogPath != "" {
+			fmt.Fprintf(&b, "    log:      %s\n", ev.Run.LogPath)
+		}
+		if verbose && ev.Run.LogPath != "" {
+			fmt.Fprintln(&b, "    (re-run with `jq` over the log to see the full transcript)")
+		}
+	}
 	return b.String()
 }
 

@@ -326,14 +326,16 @@ func buildEnv(spec RunSpec, callerDepth int) []string {
 }
 
 // absorbEvent updates the running RunResult based on a streamed event.
+// Handles both upstream shapes (raw Anthropic streaming + Claude Code
+// CLI envelope) so token counts + final text are populated regardless
+// of which producer we're talking to.
 func absorbEvent(result *RunResult, ev Event) {
 	switch ev.Type {
+	// --- Anthropic streaming API ---
 	case "message_start":
-		if ev.Message != nil {
-			if ev.Message.Usage != nil {
-				result.InputTok = ev.Message.Usage.InputTokens
-				result.OutputTok = ev.Message.Usage.OutputTokens
-			}
+		if ev.Message != nil && ev.Message.Usage != nil {
+			result.InputTok = ev.Message.Usage.InputTokens
+			result.OutputTok = ev.Message.Usage.OutputTokens
 		}
 	case "message_delta":
 		if ev.Message != nil && ev.Message.Usage != nil {
@@ -343,10 +345,32 @@ func absorbEvent(result *RunResult, ev Event) {
 		result.Turns++
 	case "content_block_delta":
 		if ev.ContentBlockType() == "text_delta" {
-			// FinalText is filled by the renderer for OutputFinal mode;
-			// for the stream renderer we still want a copy here so the
-			// eventlog knows the final answer.
 			result.FinalText += ev.TextDelta()
+		}
+
+	// --- Claude Code CLI envelope ---
+	case "assistant":
+		if t := ev.AssistantText(); t != "" {
+			result.FinalText += t
+		}
+		if ev.Message != nil && ev.Message.Usage != nil {
+			result.InputTok = ev.Message.Usage.InputTokens
+			result.OutputTok = ev.Message.Usage.OutputTokens
+		}
+		result.Turns++
+	case "result":
+		if ev.ResultUsage != nil {
+			// Final aggregate from the CLI; trusted over running totals.
+			result.InputTok = ev.ResultUsage.InputTokens
+			result.OutputTok = ev.ResultUsage.OutputTokens
+		}
+		if ev.NumTurns > 0 {
+			result.Turns = ev.NumTurns
+		}
+		if ev.Result != "" && result.FinalText == "" {
+			// CLI dumps the full final text in the result event too; use
+			// it as a fallback when we missed earlier assistant events.
+			result.FinalText = ev.Result
 		}
 	}
 }

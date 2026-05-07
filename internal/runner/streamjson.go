@@ -8,33 +8,69 @@ import (
 	"io"
 )
 
-// Event is a single decoded stream-json event. Claude Code documents
-// the outer envelope as `type` + variant fields; we keep an opaque
-// Raw field so unknown variants (schema drift) still pass through.
+// Event is a single decoded stream-json event. Two upstream shapes
+// land here:
+//
+//   - The raw Anthropic streaming API: `message_start` /
+//     `content_block_start` / `content_block_delta` /
+//     `content_block_stop` / `message_stop`. Used by the proxy.
+//   - The Claude Code CLI `--output-format stream-json` envelope:
+//     `system` / `assistant` / `user` / `result`. The CLI batches
+//     messages instead of streaming deltas — each `assistant` event
+//     carries the complete message.
+//
+// The decoder keeps an opaque Raw field so unknown variants (schema
+// drift) still pass through. Both shapes coexist on the Event struct;
+// the renderer + absorbEvent dispatch on Type.
 type Event struct {
 	Type string          `json:"type"`
 	Raw  json.RawMessage `json:"-"`
 
-	// message_start / message_delta payloads
+	// Used by both shapes (assistant message envelope, message_start).
 	Message *EventMessage `json:"message,omitempty"`
 
-	// content_block_start / content_block_delta / content_block_stop
+	// Anthropic streaming: content_block_start / content_block_delta /
+	// content_block_stop.
 	Index        int             `json:"index,omitempty"`
 	ContentBlock json.RawMessage `json:"content_block,omitempty"`
 	Delta        json.RawMessage `json:"delta,omitempty"`
+
+	// Claude Code CLI: result event carries cost + final usage at the
+	// top level (not nested under .message).
+	Subtype     string `json:"subtype,omitempty"`
+	Result      string `json:"result,omitempty"`
+	IsError     bool   `json:"is_error,omitempty"`
+	NumTurns    int    `json:"num_turns,omitempty"`
+	TotalCost   float64 `json:"total_cost_usd,omitempty"`
+	StopReason  string `json:"stop_reason,omitempty"`
+	ResultUsage *MessageUsage `json:"usage,omitempty"`
 
 	// error events
 	Error *EventError `json:"error,omitempty"`
 }
 
-// EventMessage is the message envelope inside message_start /
-// message_delta. We pull out only the fields we actually use.
+// EventMessage is the message envelope shared between the Anthropic
+// streaming API (`message_start`) and the Claude Code CLI's
+// `assistant` / `user` events. The CLI nests the full message
+// (content blocks, usage) inside .message; the API nests partial
+// state and emits deltas separately.
 type EventMessage struct {
-	ID    string         `json:"id,omitempty"`
-	Model string         `json:"model,omitempty"`
-	Usage *MessageUsage  `json:"usage,omitempty"`
-	Stop  string         `json:"stop_reason,omitempty"`
-	Extra map[string]any `json:"-"`
+	ID      string         `json:"id,omitempty"`
+	Model   string         `json:"model,omitempty"`
+	Usage   *MessageUsage  `json:"usage,omitempty"`
+	Stop    string         `json:"stop_reason,omitempty"`
+	Content []EventContent `json:"content,omitempty"`
+	Extra   map[string]any `json:"-"`
+}
+
+// EventContent is one content block inside .message.content.
+type EventContent struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ID       string          `json:"id,omitempty"`
+	Name     string          `json:"name,omitempty"`
+	Input    json.RawMessage `json:"input,omitempty"`
+	ToolUseID string         `json:"tool_use_id,omitempty"`
 }
 
 // MessageUsage tracks token counts. Claude Code emits the running
@@ -84,10 +120,26 @@ func (e Event) ToolUseID() string {
 }
 
 // FinalText is true when this event signals the end of the run.
-// Claude Code uses message_stop; we treat top-level result events the
-// same way for forward compatibility.
+// Both upstream shapes converge here: the Anthropic API emits
+// `message_stop`; the Claude Code CLI emits `result`.
 func (e Event) FinalText() bool {
 	return e.Type == "message_stop" || e.Type == "result"
+}
+
+// AssistantText returns the concatenated text from a Claude Code
+// `assistant` event's nested content blocks. Empty for other event
+// shapes.
+func (e Event) AssistantText() string {
+	if e.Type != "assistant" || e.Message == nil {
+		return ""
+	}
+	var s string
+	for _, c := range e.Message.Content {
+		if c.Type == "text" {
+			s += c.Text
+		}
+	}
+	return s
 }
 
 // jsonStringField pulls out a single string field from a raw JSON

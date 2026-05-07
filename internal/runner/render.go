@@ -34,12 +34,11 @@ func (r *streamRenderer) OnEvent(ev Event) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch ev.Type {
+	// --- Anthropic streaming API shape (proxy mode, raw API) ---
 	case "content_block_start":
 		switch ev.ContentBlockType() {
 		case "tool_use":
 			fmt.Fprintf(r.w, "\n▸ %s", ev.ToolUseName())
-		case "text":
-			// nothing to print until deltas arrive
 		}
 	case "content_block_delta":
 		switch ev.ContentBlockType() {
@@ -47,7 +46,6 @@ func (r *streamRenderer) OnEvent(ev Event) {
 			fmt.Fprint(r.w, ev.TextDelta())
 			r.finalBuf.WriteString(ev.TextDelta())
 		case "input_json_delta":
-			// Tool input streams in. Buffer enough to show on stop.
 			r.tokenBuf.WriteString(jsonStringField(ev.Delta, "partial_json"))
 		}
 	case "content_block_stop":
@@ -57,8 +55,46 @@ func (r *streamRenderer) OnEvent(ev Event) {
 		}
 	case "message_start", "message_delta":
 		// Token counts come through here but aren't worth rendering live.
-	case "message_stop", "result":
+	case "message_stop":
 		fmt.Fprintln(r.w)
+
+	// --- Claude Code CLI envelope (`--output-format stream-json`) ---
+	case "system":
+		// init metadata; not interesting for the live view
+	case "assistant":
+		// The CLI batches: each `assistant` event holds a complete
+		// message. Render text blocks and any tool uses.
+		if ev.Message == nil {
+			return
+		}
+		for _, c := range ev.Message.Content {
+			switch c.Type {
+			case "text":
+				if c.Text != "" {
+					fmt.Fprint(r.w, c.Text)
+					r.finalBuf.WriteString(c.Text)
+				}
+			case "tool_use":
+				fmt.Fprintf(r.w, "\n▸ %s(%s)", c.Name, trimToolArgs(string(c.Input)))
+			case "thinking":
+				// suppressed in live render
+			}
+		}
+		fmt.Fprintln(r.w)
+	case "user":
+		// Tool results coming back from the agent loop. Render a
+		// short marker so the user can see the loop progressing.
+		if ev.Message == nil {
+			return
+		}
+		for _, c := range ev.Message.Content {
+			if c.Type == "tool_result" {
+				fmt.Fprintln(r.w, "  ↩ tool result received")
+			}
+		}
+	case "result":
+		fmt.Fprintln(r.w)
+
 	case "error":
 		if ev.Error != nil {
 			fmt.Fprintf(r.w, "\nERROR: %s\n", ev.Error.Message)
@@ -81,10 +117,15 @@ type finalRenderer struct {
 func NewFinalRenderer(w io.Writer) Renderer { return &finalRenderer{w: w} }
 
 func (r *finalRenderer) OnEvent(ev Event) {
-	if ev.Type == "content_block_delta" && ev.ContentBlockType() == "text_delta" {
-		r.mu.Lock()
-		r.finalBuf.WriteString(ev.TextDelta())
-		r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch ev.Type {
+	case "content_block_delta":
+		if ev.ContentBlockType() == "text_delta" {
+			r.finalBuf.WriteString(ev.TextDelta())
+		}
+	case "assistant":
+		r.finalBuf.WriteString(ev.AssistantText())
 	}
 }
 
