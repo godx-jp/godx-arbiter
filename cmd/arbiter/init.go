@@ -16,15 +16,25 @@ import (
 // hooks in ~/.claude/settings.json so a fresh `arbiter init` is enough
 // to start coordinating Claude Code sessions.
 //
+// Two modes:
+//
+//   - --interactive (default when stdin is a TTY): a wizard asks about
+//     the project + risk tolerance + escalation channels and writes a
+//     personalized rules.md.
+//   - --non-interactive (or piped stdin): falls back to one of the
+//     three canned templates (balanced / strict / sandbox).
+//
 // Per ROADMAP open question #5: refuse to overwrite an existing
 // rules.md / policy.yaml unless --force is passed.
 func runInit(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	template := fs.String("template", "balanced", "rules.md template: balanced | strict | sandbox")
+	template := fs.String("template", "", "rules.md template: balanced | strict | sandbox (overrides interactive)")
 	force := fs.Bool("force", false, "overwrite existing rules.md / policy.yaml")
 	skipHooks := fs.Bool("skip-hooks", false, "skip writing ~/.claude/settings.json")
 	skipMCP := fs.Bool("skip-mcp", false, "skip MCP server registration in settings.json")
 	dir := fs.String("dir", ".", "project root to scaffold (default: cwd)")
+	interactive := fs.Bool("interactive", true, "ask interactive questions to personalize rules.md")
+	nonInteractive := fs.Bool("non-interactive", false, "skip the wizard; use --template (or 'balanced')")
 	_ = fs.Parse(args)
 
 	root, err := filepath.Abs(*dir)
@@ -32,7 +42,31 @@ func runInit(args []string) {
 		fail("init: resolve dir: %v", err)
 	}
 
-	if err := scaffoldArbiterDir(root, *template, *force); err != nil {
+	// Wizard activates when stdin is a real TTY (so piped CI input
+	// falls back to the template). GODX_ARBITER_FORCE_WIZARD lifts the
+	// TTY check for scripted runs and integration tests.
+	stdinReady := isTerminal(os.Stdin) || os.Getenv("GODX_ARBITER_FORCE_WIZARD") == "1"
+	useWizard := *interactive && !*nonInteractive && *template == "" && stdinReady
+	chosenTemplate := *template
+	if chosenTemplate == "" {
+		chosenTemplate = "balanced"
+	}
+
+	var personalizedRules string
+	var personalizedPolicy string
+	var derivedChannels []string
+	if useWizard {
+		ans, err := runInitWizard(root)
+		if err != nil {
+			fail("init wizard: %v", err)
+		}
+		personalizedRules = ans.RulesBody
+		personalizedPolicy = ans.PolicyBody
+		derivedChannels = ans.NotifyChannels
+		chosenTemplate = ans.TemplateLabel
+	}
+
+	if err := scaffoldArbiterDirWithBody(root, chosenTemplate, *force, personalizedRules, personalizedPolicy); err != nil {
 		fail("init: scaffold .arbiter: %v", err)
 	}
 
@@ -42,24 +76,46 @@ func runInit(args []string) {
 		}
 	}
 
-	fmt.Printf("✓ arbiter initialized at %s\n", root)
-	fmt.Printf("  next: edit %s/rules.md to suit the project, then `arbiter doctor`\n",
+	fmt.Printf("\n✓ arbiter initialized at %s\n", root)
+	fmt.Printf("  template: %s%s\n", chosenTemplate, ifelse(useWizard, " (personalized)", ""))
+	if len(derivedChannels) > 0 {
+		fmt.Printf("  channels: %s\n", strings.Join(derivedChannels, ", "))
+	}
+	fmt.Printf("  next steps:\n")
+	fmt.Printf("    1. arbiter auth set anthropic    # store API key in OS keychain\n")
+	fmt.Printf("    2. arbiter doctor                # verify everything is wired up\n")
+	fmt.Printf("    3. open %s/rules.md to refine the rules\n",
 		filepath.Join(root, projectfind.ConfigDirName))
 }
 
 func scaffoldArbiterDir(root, template string, force bool) error {
+	return scaffoldArbiterDirWithBody(root, template, force, "", "")
+}
+
+// scaffoldArbiterDirWithBody is the wizard-aware variant — when
+// rulesBody / policyBody are non-empty, they're used verbatim
+// instead of the canned template.
+func scaffoldArbiterDirWithBody(root, template string, force bool, rulesBody, policyBody string) error {
 	dir := projectfind.ConfigDir(root)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
 	rulesPath := projectfind.RulesPath(root)
-	if err := writeIfMissing(rulesPath, rulesTemplate(template), force); err != nil {
+	rules := rulesBody
+	if rules == "" {
+		rules = rulesTemplate(template)
+	}
+	if err := writeIfMissing(rulesPath, rules, force); err != nil {
 		return err
 	}
 
 	policyPath := projectfind.PolicyPath(root)
-	if err := writeIfMissing(policyPath, policyTemplate(template), force); err != nil {
+	policy := policyBody
+	if policy == "" {
+		policy = policyTemplate(template)
+	}
+	if err := writeIfMissing(policyPath, policy, force); err != nil {
 		return err
 	}
 
@@ -191,6 +247,13 @@ func mergeArbiterMCP(settings map[string]any) {
 func fail(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 	os.Exit(1)
+}
+
+func ifelse(cond bool, a, b string) string {
+	if cond {
+		return a
+	}
+	return b
 }
 
 // rulesTemplate returns a starter rules.md body for the chosen template.

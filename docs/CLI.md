@@ -97,6 +97,7 @@ honored by Codex 0.128+):
 
 ```
 arbiter init [--dir PATH] [--template balanced|strict|sandbox]
+             [--interactive | --non-interactive]
              [--force] [--skip-hooks] [--skip-mcp]
 ```
 
@@ -104,18 +105,77 @@ Scaffolds `.arbiter/rules.md` + `.arbiter/policy.yaml` +
 `.arbiter/skills/` and merges arbiter hook + MCP entries into
 `~/.claude/settings.json` (with timestamped backup).
 
-Templates:
-- `balanced` (default) — sensible production defaults: deny destructive
-  + secret patterns, allow read-only, escalate sudo
+### Interactive wizard (default)
+
+When stdin is a TTY and no `--template` is set, `init` runs a wizard
+that asks about the project + risk tolerance and writes a personalized
+`rules.md`. Sample run:
+
+```
+godx-arbiter init wizard — let's tailor the rules to this project.
+Press ENTER to accept the default in [brackets].
+
+Project name [famgia-admin]:
+Project type (production|sandbox|library|tool) [production]
+  hint: production = strict; sandbox = lax; library/tool = balanced
+> production
+Languages (comma-separated, e.g. go,ts,python): go,ts
+Slow-path agent model (haiku|sonnet|opus) [haiku]
+On internal arbiter error (approve|deny) [approve]
+  hint: approve = fail-open (recommended); deny = paranoid
+> deny
+On agent timeout (approve|deny|escalate) [deny]
+
+── Decisions ─────────────────────────────────────────────────────
+Built-in safe denies are always on. Add project-specific rules below.
+
+Extra DENY rules (one per line, blank to finish)
+  - backend/internal/config/values.go: PR review only
+  - backend/migrations/*.sql: never edit applied files
+  -
+Extra AUTO-APPROVE rules (one per line, blank to finish)
+  - frontend/src/i18n/locales/*.json: small string changes
+  -
+Extra ESCALATE rules (one per line, blank to finish)
+  - New dependencies in go.mod / package.json
+  -
+
+── Notifications ─────────────────────────────────────────────────
+Use Telegram for escalations? (y/n) [n]: y
+  → after init, run: arbiter auth set telegram
+    and: export GODX_ARBITER_TELEGRAM_CHAT_ID=<your chat id>
+Quiet hours (HH:MM-HH:MM, suppresses Telegram, blank = none): 22:00-07:00
+
+Register the MCP server in ~/.claude/settings.json? (y/n) [y]: y
+```
+
+The result: a `rules.md` whose front matter reflects the wizard
+answers (`agent_model`, `on_error`, `notify_channels`, `quiet_hours`)
+and whose body merges the built-in `## Auto-approve / Deny / Escalate`
+sections with the user's project-specific lines.
+
+### Templates (non-interactive fallback)
+
+- `balanced` (default when fallback fires) — production defaults: deny
+  destructive + secret patterns, allow read-only, escalate sudo
 - `strict` — default-deny posture; only `Read/Glob/Grep` auto-approves
 - `sandbox` — default-approve; only catastrophic patterns block
 
-Flags:
-- `--dir PATH` — scaffold somewhere other than cwd
-- `--force` — overwrite existing `rules.md` / `policy.yaml`
-- `--skip-hooks` — only scaffold the project; don't touch
-  `~/.claude/settings.json`
-- `--skip-mcp` — register hooks but not the MCP server
+### Flags
+
+| Flag | Effect |
+|---|---|
+| `--dir PATH` | Scaffold somewhere other than cwd |
+| `--template NAME` | Skip the wizard; use a canned template |
+| `--non-interactive` | Force template fallback (good for CI / scripts) |
+| `--force` | Overwrite existing `rules.md` / `policy.yaml` |
+| `--skip-hooks` | Don't touch `~/.claude/settings.json` |
+| `--skip-mcp` | Register hooks but not the MCP server |
+
+Environment overrides:
+
+- `GODX_ARBITER_FORCE_WIZARD=1` — run the wizard even when stdin is
+  piped (useful for integration tests).
 
 Without `--force`, existing files are left in place with a notice.
 

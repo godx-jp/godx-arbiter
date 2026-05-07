@@ -95,8 +95,10 @@ Hook lifecycle (called by Claude Code via ~/.claude/settings.json):
 
 Project setup:
   init [flags]          Scaffold .arbiter/ + register hooks/MCP in ~/.claude/settings.json
+                        Default: interactive wizard (asks about project, risk
+                        tolerance, escalation channels) when stdin is a TTY.
                         Flags: --dir PATH, --template balanced|strict|sandbox,
-                               --force, --skip-hooks, --skip-mcp
+                               --non-interactive, --force, --skip-hooks, --skip-mcp
   uninstall [--dry-run] Remove arbiter hook + MCP entries from ~/.claude/settings.json
 
 Diagnostics:
