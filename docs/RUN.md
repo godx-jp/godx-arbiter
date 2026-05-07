@@ -145,6 +145,41 @@ Common flags:
 | 124 | Timeout — matches `timeout(1)` convention. |
 | 130 | User-interrupted (Ctrl-C → SIGTERM → 5s grace → SIGKILL on the child's process group). |
 
+## Survival modes — what happens when things go wrong mid-run
+
+Three things can interrupt a long-running `arbiter run`:
+
+| Failure | Default behaviour | Mitigation |
+|---|---|---|
+| **Ctrl-C / `kill arbiter`** (SIGINT/SIGTERM) | Process-group SIGTERM to child, 5s grace, then SIGKILL. Exit 130. Eventlog `interrupted`. | Resume with `arbiter run --resume <id> -- "<continuation>"` (printed automatically on interrupt). |
+| **Terminal closes / SSH dropout** (SIGHUP) | Default: arbiter dies, child dies with it. | Pass `--keep-running` to ignore SIGHUP. Or wrap externally: `nohup`, `setsid`, `tmux new-session -d`. |
+| **arbiter SIGKILL'd** (OOM, `kill -9`, panic) | Linux: kernel sends SIGTERM to the child via `PR_SET_PDEATHSIG`, no orphan. Other platforms: child becomes orphan; `arbiter run --list` shows it as in-flight. | On macOS/BSD, run inside tmux/launchd if SIGKILL survival matters. |
+| **Network blip / API rate limit** | Child claude exits non-zero → arbiter exits 1 with `OutcomeChildFailed`. | Resume with `--resume <id>` or `--continue`. Claude Code's session state is preserved on its side. |
+| **System sleep/suspend** | Claude Code reconnects when network returns; if not, exits non-zero. | Same as network blip — `--continue`. |
+| **Internal panic in arbiter runner code** | Panic shield catches, kills process group, surfaces as `OutcomeChildFailed: "runner panic: <reason>"`. No orphan. | File a bug. The shield prevents data loss but the panic itself is a programming error. |
+| **Disk full when writing the run log** | runner returns `OutcomeRefused` before the child starts; failure is loud. | Free space; the eventlog row is small enough to almost always succeed. |
+
+The three layers of protection:
+
+1. **Context cancel + cmd.Cancel** → normal path. SIGINT / SIGTERM /
+   `--timeout` → process-group SIGTERM with 5s grace.
+2. **Deferred panic recover** → bug in runner code can't orphan the
+   child. Recovery surfaces as `runner panic: <reason>` in
+   `arbiter explain`.
+3. **`PR_SET_PDEATHSIG=SIGTERM`** (Linux) → kernel-level safety net
+   for the cases where arbiter doesn't get to run defers (SIGKILL,
+   OOM, hard panic). Even `kill -9 arbiter` leaves no orphan claude.
+
+For the truly long-running case (hours to days) where you want the
+run to survive your shell session, terminal crash, *and* an arbiter
+restart, run inside tmux:
+
+```bash
+tmux new-session -d -s arbiter-run \
+  "arbiter run --keep-running --notify-on-done -- 'long task'"
+tmux attach -t arbiter-run    # any time
+```
+
 ## Safety model
 
 `arbiter run` is a fast path for scripted automation, which is

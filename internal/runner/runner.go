@@ -37,16 +37,39 @@ func New() *Runner {
 // hard error.
 //
 // The cardinal rule (ADR-005 spirit applied to orchestration):
-// arbiter must not panic on the caller. Internal errors are surfaced
-// as RunResult{Outcome: …, Reason: err.Error()} with a non-zero exit
-// code; only programming bugs propagate as Go errors.
-func (r *Runner) Run(ctx context.Context, spec RunSpec) (*RunResult, error) {
+// arbiter must not crash on the caller and must not orphan a child
+// process under any failure mode. Three layers of protection:
+//
+//   - context cancel triggers cmd.Cancel which kills the process
+//     group (the normal path);
+//   - the deferred recover() below catches panics in the runner code
+//     itself, kills the process group via spawnedCmd, and surfaces
+//     the panic as OutcomeChildFailed;
+//   - sysProcAttr() sets PR_SET_PDEATHSIG=SIGTERM on Linux so even
+//     SIGKILL of arbiter (OOM, kill -9) leaves no orphan claude.
+func (r *Runner) Run(ctx context.Context, spec RunSpec) (resultOut *RunResult, errOut error) {
 	r = withDefaults(r)
 	resolved, err := resolveSpec(r, spec)
 	if err != nil {
 		return nil, err
 	}
 	spec = resolved
+
+	// Panic shield: any bug in the runner code below must not orphan
+	// the child. spawnedCmd is captured at exec.Cmd build time so the
+	// recovery path can kill its process group even if the panic
+	// happened before normal cleanup.
+	var spawnedCmd *exec.Cmd
+	defer func() {
+		if rec := recover(); rec != nil {
+			if spawnedCmd != nil {
+				_ = killGroup(spawnedCmd)
+			}
+			fmt.Fprintf(spec.Stderr, "[arbiter run] panic recovered: %v\n", rec)
+			resultOut = finishRefused(r, spec, OutcomeChildFailed,
+				fmt.Sprintf("runner panic: %v", rec))
+		}
+	}()
 
 	if spec.UnsafeSkipPermissions {
 		if err := guardUnsafe(spec); err != nil {
@@ -109,6 +132,7 @@ func (r *Runner) Run(ctx context.Context, spec RunSpec) (*RunResult, error) {
 	cmd.SysProcAttr = sysProcAttr()
 	cmd.Cancel = func() error { return killGroup(cmd) }
 	cmd.WaitDelay = 5 * time.Second
+	spawnedCmd = cmd // for the panic shield deferred at function entry
 
 	result := &RunResult{
 		ID:        spec.ID,

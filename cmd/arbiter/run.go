@@ -67,6 +67,7 @@ func runRun(args []string) {
 	noHooks := fs.Bool("no-arbiter-hooks", false, "Disable arbiter's own hooks for the spawned session (dev iteration only)")
 	inheritEnv := fs.Bool("inherit-env", false, "Pass the caller's full env instead of the curated allowlist")
 	forceResume := fs.Bool("force-resume", false, "Resume a session even if its original cwd differs from the current cwd")
+	keepOnHup := fs.Bool("keep-running", false, "Ignore SIGHUP so closing the terminal / SSH dropout doesn't kill the run (output continues to log file)")
 
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
@@ -127,6 +128,15 @@ func runRun(args []string) {
 		}
 	}
 
+	if *keepOnHup {
+		// Ignore SIGHUP so a terminal close / SSH dropout doesn't tear
+		// the run down. signal.Ignore detaches the default action;
+		// SIGHUP is delivered to the process group, but with the
+		// handler ignored arbiter (and thus its child) survive.
+		signal.Ignore(syscall.SIGHUP)
+		fmt.Fprintln(os.Stderr, "[arbiter run] SIGHUP ignored — terminal close won't kill this run")
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if spec.Timeout > 0 {
@@ -144,6 +154,16 @@ func runRun(args []string) {
 
 	if result.Reason != "" && result.Outcome != runner.OutcomeOK {
 		fmt.Fprintf(os.Stderr, "\n[arbiter run] %s: %s\n", result.Outcome, result.Reason)
+	}
+
+	// Resume hint: when a run is interrupted / timed out / failed
+	// mid-stream, point the user at the recovery path. Use result.ID
+	// (resolved) rather than spec.ID (may be empty pre-resolution).
+	switch result.Outcome {
+	case runner.OutcomeInterrupted, runner.OutcomeTimeout, runner.OutcomeChildFailed:
+		if result.ID != "" {
+			fmt.Fprintf(os.Stderr, "[arbiter run] to resume: arbiter run --resume %s -- \"<continuation prompt>\"\n", result.ID)
+		}
 	}
 
 	if spec.NotifyOnDone {
